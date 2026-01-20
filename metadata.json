@@ -1,0 +1,7 @@
+{
+  "name": "GastroFlow SaaS Pro",
+  "description": "A high-performance multi-tenant SaaS for restaurants, bars, and cafes. Features include advanced RBAC, menu management, inventory tracking, table layouts, and Mercado Pago subscription integration.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

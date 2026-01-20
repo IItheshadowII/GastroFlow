@@ -28,12 +28,12 @@ class ApiClient {
         ...options?.headers,
       },
     });
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Request failed' }));
       throw new Error(error.error || `HTTP ${response.status}`);
     }
-    
+
     return response.json();
   }
 
@@ -57,38 +57,38 @@ class ApiClient {
 const apiClient = new ApiClient(API_URL || '/api');
 
 const DEFAULT_ROLES = [
-  { 
-    id: 'role-admin', 
-    name: 'Administrador', 
+  {
+    id: 'role-admin',
+    name: 'Administrador',
     permissions: [
-      'tables.view', 'tables.edit', 'tables.manage', 'kitchen.view', 'kitchen.manage', 
+      'tables.view', 'tables.edit', 'tables.manage', 'kitchen.view', 'kitchen.manage',
       'cash.view', 'cash.manage', 'dashboard.view', 'reports.view',
-      'menu.view', 'menu.edit', 'stock.view', 'stock.adjust', 
+      'menu.view', 'menu.edit', 'stock.view', 'stock.adjust',
       'users.view', 'users.manage', 'roles.manage', 'settings.manage', 'billing.manage'
-    ] 
+    ]
   },
-  { 
-    id: 'role-manager', 
-    name: 'Encargado', 
+  {
+    id: 'role-manager',
+    name: 'Encargado',
     permissions: [
-      'tables.view', 'tables.edit', 'kitchen.view', 'kitchen.manage', 
+      'tables.view', 'tables.edit', 'kitchen.view', 'kitchen.manage',
       'cash.view', 'cash.manage', 'dashboard.view', 'reports.view',
       'menu.view', 'stock.view'
-    ] 
+    ]
   },
-  { 
-    id: 'role-kitchen', 
-    name: 'Cocina', 
+  {
+    id: 'role-kitchen',
+    name: 'Cocina',
     permissions: [
       'kitchen.view', 'kitchen.manage', 'menu.view', 'stock.view'
-    ] 
+    ]
   },
-  { 
-    id: 'role-staff', 
-    name: 'Mozo', 
+  {
+    id: 'role-staff',
+    name: 'Mozo',
     permissions: [
       'tables.view', 'tables.edit', 'menu.view'
-    ] 
+    ]
   },
 ];
 
@@ -142,10 +142,10 @@ class DBService {
         const items = await apiClient.get<T[]>(`/api/${key}?tenantId=${tenantId}`);
         return items.find(item => item.id === id);
       } catch {
-        return this.getById(key, id, tenantId);
+        return this.getById<T>(key, id, tenantId);
       }
     }
-    return this.getById(key, id, tenantId);
+    return this.getById<T>(key, id, tenantId);
   }
 
   insert<T extends { id: string; tenantId: string }>(key: string, item: T): T {
@@ -186,7 +186,7 @@ class DBService {
     const items = this.getLocalData<T>(key);
     const index = items.findIndex(i => i.id === id && i.tenantId === tenantId);
     if (index === -1) throw new Error('Item no encontrado');
-    
+
     items[index] = { ...items[index], ...updates };
     this.setLocalData(key, items);
     return items[index];
@@ -208,7 +208,7 @@ class DBService {
         console.error('Update failed, updating locally:', error);
       }
     }
-    return this.update(key, id, tenantId, updates);
+    return this.update<T>(key, id, tenantId, updates);
   }
 
   private _hardDelete(key: string, id: string, tenantId: string): void {
@@ -240,12 +240,12 @@ class DBService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, licenseKey })
       });
-      
+
       if (!res.ok) {
         console.warn('Licencia no válida o servidor no disponible');
         return false;
       }
-      
+
       const data = await res.json();
       if (data.valid) {
         // Actualizar estado local con los datos de la nube
@@ -288,7 +288,7 @@ class DBService {
 
     const hasHistory = orders.length > 0;
     if (hasHistory) {
-      this.update<Table>('tables', tableId, tenantId, { isActive: false, status: 'AVAILABLE' }); 
+      this.update<Table>('tables', tableId, tenantId, { isActive: false, status: 'AVAILABLE' });
     } else {
       this._hardDelete('tables', tableId, tenantId);
     }
@@ -319,8 +319,8 @@ class DBService {
     if (role?.name === 'Administrador') {
       const allUsers = this.query<User>('users', tenantId).filter(u => u.isActive);
       const adminCount = allUsers.filter(u => {
-         const r = this.getById<Role>('roles', u.roleId, tenantId);
-         return r?.name === 'Administrador';
+        const r = this.getById<Role>('roles', u.roleId, tenantId);
+        return r?.name === 'Administrador';
       }).length;
       if (adminCount <= 1) throw new Error("No puedes eliminar al único Administrador activo.");
     }
@@ -328,11 +328,11 @@ class DBService {
   }
 
   removeRole(roleId: string, tenantId: string): void {
-     const role = this.getById<Role>('roles', roleId, tenantId);
-     if (role?.name === 'Administrador') throw new Error("El rol Administrador es de sistema.");
-     const users = this.query<User>('users', tenantId).filter(u => u.roleId === roleId && u.isActive);
-     if (users.length > 0) throw new Error("Hay usuarios activos asignados a este rol.");
-     this._hardDelete('roles', roleId, tenantId);
+    const role = this.getById<Role>('roles', roleId, tenantId);
+    if (role?.name === 'Administrador') throw new Error("El rol Administrador es de sistema.");
+    const users = this.query<User>('users', tenantId).filter(u => u.roleId === roleId && u.isActive);
+    if (users.length > 0) throw new Error("Hay usuarios activos asignados a este rol.");
+    this._hardDelete('roles', roleId, tenantId);
   }
 
   canAddUser(tenantId: string): boolean {
@@ -349,7 +349,7 @@ class DBService {
     const tenantUsers = users.filter(u => u.tenantId === tenantId);
     const limit = PLANS[newPlan].limits.users;
     const activeUsers = tenantUsers.filter(u => u.isActive);
-    
+
     if (activeUsers.length > limit) {
       const adminRoles = roles.filter(r => r.tenantId === tenantId && r.name === 'Administrador').map(r => r.id);
       const sortedUsers = [...activeUsers].sort((a, b) => {
@@ -374,20 +374,20 @@ class DBService {
     const tenants = this.getLocalData<Tenant>('tenants');
     const index = tenants.findIndex(t => t.id === tenantId);
     if (index === -1) throw new Error('Tenant not found');
-    
+
     const oldPlan = tenants[index].plan;
     const newPlan = updates.plan ?? oldPlan;
 
-    tenants[index] = { 
-      ...tenants[index], 
+    tenants[index] = {
+      ...tenants[index],
       plan: newPlan,
       subscriptionStatus: updates.status ?? tenants[index].subscriptionStatus,
       mercadoPagoPreapprovalId: updates.preapprovalId ?? tenants[index].mercadoPagoPreapprovalId,
-      nextBillingDate: (updates.status === SubscriptionStatus.ACTIVE || updates.status === SubscriptionStatus.TRIAL) 
-        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() 
+      nextBillingDate: (updates.status === SubscriptionStatus.ACTIVE || updates.status === SubscriptionStatus.TRIAL)
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
         : tenants[index].nextBillingDate
     };
-    
+
     this.setLocalData('tenants', tenants);
 
     if (newPlan !== oldPlan || updates.status === SubscriptionStatus.ACTIVE) {
@@ -400,12 +400,12 @@ class DBService {
     const tenants = this.getLocalData<Tenant>('tenants');
     const index = tenants.findIndex(t => t.id === tenantId);
     if (index === -1) throw new Error('Tenant not found');
-    
-    tenants[index] = { 
-      ...tenants[index], 
+
+    tenants[index] = {
+      ...tenants[index],
       settings: { ...tenants[index].settings, ...settings }
     };
-    
+
     this.setLocalData('tenants', tenants);
     return tenants[index];
   }
@@ -430,7 +430,7 @@ class DBService {
   addItemsToOrder(orderId: string, tenantId: string, newItems: Omit<OrderItem, 'status'>[]): Order {
     const order = this.getById<Order>('orders', orderId, tenantId);
     if (!order) throw new Error('Order not found');
-    
+
     const updatedItems = [...order.items];
     newItems.forEach(newItem => {
       const existing = updatedItems.find(i => i.productId === newItem.productId && i.status === 'PENDING');
@@ -559,7 +559,7 @@ class DBService {
     // Si estamos en modo CLOUD, idealmente verificamos conexión
     // Si estamos en modo LOCAL, inicializamos defaults de localStorage
     const tenants = this.getLocalData<Tenant>('tenants');
-    
+
     if (!localStorage.getItem('gastroflow_tenants')) {
       const demoTenantId = 'demo-123';
       const demoTenant: Tenant = {
@@ -571,7 +571,7 @@ class DBService {
         createdAt: new Date().toISOString(),
         settings: { geminiModel: 'gemini-3-flash-preview' }
       };
-      
+
       const roles: Role[] = DEFAULT_ROLES.map(r => ({ ...r, tenantId: demoTenantId }));
       const demoUser: User = {
         id: 'user-123', tenantId: demoTenantId, email: 'admin@demo.com', name: 'Admin Demo', roleId: roles[0].id, isActive: true
@@ -583,10 +583,10 @@ class DBService {
       this.setLocalData('tenants', [demoTenant]);
       this.setLocalData('roles', roles);
       this.setLocalData('users', [demoUser, mozoUser]);
-      
+
       const category: Category = { id: 'cat-1', tenantId: demoTenantId, name: 'Bebidas', order: 1 };
       this.setLocalData('categories', [category]);
-      
+
       const products: Product[] = [
         { id: 'p-1', tenantId: demoTenantId, categoryId: 'cat-1', name: 'Cerveza Artesanal IPA', description: '500ml', price: 1200, stockEnabled: true, stockQuantity: 45, stockMin: 10, isActive: true, sku: 'CER-001' },
         { id: 'p-2', tenantId: demoTenantId, categoryId: 'cat-1', name: 'Limonada', description: 'Fresca', price: 800, stockEnabled: true, stockQuantity: 12, stockMin: 15, isActive: true, sku: 'BEB-002' },

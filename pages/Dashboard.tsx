@@ -178,7 +178,8 @@ export const Dashboard: React.FC<{ tenantId: string }> = ({ tenantId }) => {
                   tickLine={false} 
                   axisLine={false} 
                   dy={15}
-                  tick={{ fontWeight: 800, textTransform: 'uppercase' }}
+                  tick={{ fontWeight: 800 }}
+                  style={{ textTransform: 'uppercase' }}
                 />
                 <YAxis 
                   stroke="#475569" 

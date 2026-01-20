@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { 
-  Check, Zap, Shield, Crown, CreditCard, History, 
-  ExternalLink, Loader2, AlertCircle, CheckCircle2, 
+import {
+  Check, Zap, Shield, Crown, CreditCard, History,
+  ExternalLink, Loader2, AlertCircle, CheckCircle2,
   ArrowRight, Sparkles, Building2, X, Users
 } from 'lucide-react';
 import { PLANS } from '../constants';
@@ -19,14 +19,47 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
     setShowCheckout({ planId: plan.id, name: plan.name, price: plan.price });
   };
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     if (!showCheckout) return;
     setCheckoutStatus('processing');
-    
+
+    const isCloud = (import.meta as any).env.VITE_APP_MODE === 'CLOUD';
+
+    if (isCloud) {
+      try {
+        const res = await fetch('/api/subscriptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId: tenant.id,
+            planId: showCheckout.planId,
+            price: showCheckout.price,
+            backUrl: window.location.href // Return to this page
+          })
+        });
+        const data = await res.json();
+        if (data.init_point) {
+          window.location.href = data.init_point;
+          return;
+        } else {
+          console.error('No init_point returned', data);
+          alert('Error al iniciar pago con Mercado Pago. Verifica la configuración.');
+          setCheckoutStatus('idle');
+          return;
+        }
+      } catch (err) {
+        console.error('Payment initialization failed', err);
+        alert('Error de conexión con el servidor de pagos.');
+        setCheckoutStatus('idle');
+        return;
+      }
+    }
+
+    // Fallback Simulation (Local Mode)
     // Check current users before update to show notice if needed
     const currentActiveUsers = db.query<User>('users', tenant.id).filter(u => u.isActive).length;
     const newLimit = PLANS[showCheckout.planId].limits.users;
-    
+
     // Simular latencia de Mercado Pago
     setTimeout(() => {
       const updatedTenant = db.updateTenantSubscription(tenant.id, {
@@ -34,13 +67,13 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
         status: SubscriptionStatus.ACTIVE,
         preapprovalId: `mp-sub-${Date.now()}`
       });
-      
+
       if (currentActiveUsers > newLimit) {
         setReconciliationNotice(true);
       }
 
       setCheckoutStatus('success');
-      
+
       setTimeout(() => {
         onUpdate(updatedTenant);
         setShowCheckout(null);
@@ -68,22 +101,21 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
                 <span className="px-5 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-500/30 font-black rounded-full text-xs uppercase tracking-[0.1em]">
                   {PLANS[tenant.plan].name}
                 </span>
-                <span className={`px-5 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.1em] flex items-center gap-2 border ${
-                  tenant.subscriptionStatus === SubscriptionStatus.ACTIVE 
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                <span className={`px-5 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.1em] flex items-center gap-2 border ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                     : 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse'
-                }`}>
+                  }`}>
                   <div className={`w-2 h-2 rounded-full ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`}></div>
                   {tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? 'Servicio Activo' : 'Acceso Restringido'}
                 </span>
               </div>
             </div>
           </div>
-          
+
           <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 text-center min-w-[240px]">
             <p className="text-[10px] text-slate-500 uppercase font-black tracking-[0.2em] mb-2">Próximo Vencimiento</p>
             <p className="text-2xl font-black text-slate-100 italic">
-              {tenant.nextBillingDate 
+              {tenant.nextBillingDate
                 ? new Date(tenant.nextBillingDate).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
                 : 'Pendiente de Pago'}
             </p>
@@ -94,28 +126,26 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
       {/* Pricing Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {(Object.values(PLANS) as any).map((plan: any) => (
-          <div 
+          <div
             key={plan.id}
-            className={`group relative flex flex-col p-10 rounded-[3rem] border-2 transition-all duration-500 ${
-              tenant.plan === plan.id 
-                ? 'bg-blue-600/10 border-blue-500/50 shadow-2xl shadow-blue-500/10' 
+            className={`group relative flex flex-col p-10 rounded-[3rem] border-2 transition-all duration-500 ${tenant.plan === plan.id
+                ? 'bg-blue-600/10 border-blue-500/50 shadow-2xl shadow-blue-500/10'
                 : 'bg-slate-900/40 border-slate-800/80 hover:border-blue-500/30 hover:bg-slate-900/60 shadow-xl hover:shadow-blue-500/5'
-            }`}
+              }`}
           >
             {tenant.plan === plan.id && (
               <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-600 to-blue-400 text-white text-[10px] font-black px-6 py-2 rounded-full uppercase tracking-widest shadow-xl">
                 Tu Plan Actual
               </div>
             )}
-            
+
             <div className="mb-10 text-center">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-6 transition-transform group-hover:scale-110 ${
-                plan.id === PlanTier.BASIC ? 'bg-slate-800 text-slate-400' :
-                plan.id === PlanTier.PRO ? 'bg-blue-600/20 text-blue-400' :
-                'bg-purple-600/20 text-purple-400'
-              }`}>
-                {plan.id === PlanTier.BASIC ? <Shield size={28} /> : 
-                 plan.id === PlanTier.PRO ? <Zap size={28} /> : <Crown size={28} />}
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-6 transition-transform group-hover:scale-110 ${plan.id === PlanTier.BASIC ? 'bg-slate-800 text-slate-400' :
+                  plan.id === PlanTier.PRO ? 'bg-blue-600/20 text-blue-400' :
+                    'bg-purple-600/20 text-purple-400'
+                }`}>
+                {plan.id === PlanTier.BASIC ? <Shield size={28} /> :
+                  plan.id === PlanTier.PRO ? <Zap size={28} /> : <Crown size={28} />}
               </div>
               <h3 className="text-2xl font-black text-slate-100 italic mb-2 tracking-tight">{plan.name}</h3>
               <div className="flex items-baseline justify-center gap-1.5">
@@ -138,11 +168,10 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
             <button
               disabled={tenant.plan === plan.id && tenant.subscriptionStatus === SubscriptionStatus.ACTIVE}
               onClick={() => handleSubscribeClick(plan)}
-              className={`w-full py-5 rounded-[1.5rem] font-black text-lg transition-all flex items-center justify-center gap-3 ${
-                tenant.plan === plan.id && tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
+              className={`w-full py-5 rounded-[1.5rem] font-black text-lg transition-all flex items-center justify-center gap-3 ${tenant.plan === plan.id && tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
                   ? 'bg-slate-800/50 text-slate-600 cursor-default border border-slate-700/50'
                   : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white shadow-xl active:scale-95 shadow-blue-600/20'
-              }`}
+                }`}
             >
               {tenant.plan === plan.id && tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? (
                 <>Plan Activo</>
@@ -157,7 +186,7 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
       {/* History */}
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-           <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <div className="p-3 bg-slate-900 rounded-2xl border border-slate-800 text-slate-400 shadow-xl">
               <History size={24} />
             </div>
@@ -189,11 +218,10 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
                   <span className="text-xl font-black text-slate-200">${PLANS[tenant.plan].price.toLocaleString()}</span>
                 </td>
                 <td className="px-8 py-6 text-center">
-                  <span className={`px-4 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${
-                    tenant.subscriptionStatus === SubscriptionStatus.ACTIVE 
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                    : 'bg-red-500/10 text-red-400 border-red-500/20'
-                  }`}>
+                  <span className={`px-4 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : 'bg-red-500/10 text-red-400 border-red-500/20'
+                    }`}>
                     {tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? 'Aprobado' : 'Pendiente'}
                   </span>
                 </td>
@@ -211,90 +239,90 @@ export const BillingPage: React.FC<{ tenant: Tenant, onUpdate: (t: Tenant) => vo
       {/* Mercado Pago Checkout Modal */}
       {showCheckout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-300">
-              <div className="bg-[#009EE3] p-8 flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                    <div className="bg-white p-2 rounded-lg">
-                       <CreditCard size={20} className="text-[#009EE3]" />
-                    </div>
-                    <span className="text-white font-black text-xl italic">Mercado Pago Checkout</span>
-                 </div>
-                 <button onClick={() => setShowCheckout(null)} className="text-white/60 hover:text-white"><X size={24} /></button>
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-300">
+            <div className="bg-[#009EE3] p-8 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="bg-white p-2 rounded-lg">
+                  <CreditCard size={20} className="text-[#009EE3]" />
+                </div>
+                <span className="text-white font-black text-xl italic">Mercado Pago Checkout</span>
               </div>
+              <button onClick={() => setShowCheckout(null)} className="text-white/60 hover:text-white"><X size={24} /></button>
+            </div>
 
-              <div className="p-10 space-y-8">
-                 {checkoutStatus === 'idle' && (
-                   <>
-                    <div className="space-y-4 text-center">
-                       <h4 className="text-2xl font-black text-slate-100 tracking-tight">Confirmar Suscripción</h4>
-                       <p className="text-slate-400">Estás por contratar el plan <b>{showCheckout.name}</b> por <b>${showCheckout.price.toLocaleString()}/mes</b>.</p>
+            <div className="p-10 space-y-8">
+              {checkoutStatus === 'idle' && (
+                <>
+                  <div className="space-y-4 text-center">
+                    <h4 className="text-2xl font-black text-slate-100 tracking-tight">Confirmar Suscripción</h4>
+                    <p className="text-slate-400">Estás por contratar el plan <b>{showCheckout.name}</b> por <b>${showCheckout.price.toLocaleString()}/mes</b>.</p>
+                  </div>
+
+                  <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 space-y-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Producto</span>
+                      <span className="text-slate-200 font-black italic">GastroFlow {showCheckout.name}</span>
                     </div>
-                    
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 space-y-4">
-                       <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Producto</span>
-                          <span className="text-slate-200 font-black italic">GastroFlow {showCheckout.name}</span>
-                       </div>
-                       <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Recurrencia</span>
-                          <span className="text-slate-200 font-bold">Mensual</span>
-                       </div>
-                       <div className="pt-4 border-t border-slate-700 flex justify-between items-center">
-                          <span className="text-slate-100 font-black italic">Total a pagar hoy</span>
-                          <span className="text-3xl font-black text-emerald-400">${showCheckout.price.toLocaleString()}</span>
-                       </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Recurrencia</span>
+                      <span className="text-slate-200 font-bold">Mensual</span>
                     </div>
-
-                    <button 
-                       onClick={handleConfirmPayment}
-                       className="w-full py-5 bg-[#009EE3] hover:bg-[#0089C7] text-white rounded-2xl font-black text-xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3"
-                    >
-                       Suscribirme ahora <Sparkles size={20} />
-                    </button>
-                   </>
-                 )}
-
-                 {checkoutStatus === 'processing' && (
-                    <div className="py-12 flex flex-col items-center text-center space-y-6">
-                       <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center">
-                          <Loader2 size={40} className="animate-spin text-[#009EE3]" />
-                       </div>
-                       <div>
-                          <h4 className="text-2xl font-black text-slate-100">Procesando Pago</h4>
-                          <p className="text-slate-400 mt-2">Estamos conectando con Mercado Pago para confirmar tu transacción...</p>
-                       </div>
+                    <div className="pt-4 border-t border-slate-700 flex justify-between items-center">
+                      <span className="text-slate-100 font-black italic">Total a pagar hoy</span>
+                      <span className="text-3xl font-black text-emerald-400">${showCheckout.price.toLocaleString()}</span>
                     </div>
-                 )}
+                  </div>
 
-                 {checkoutStatus === 'success' && (
-                    <div className="py-12 flex flex-col items-center text-center space-y-6 animate-in zoom-in-95 duration-500">
-                       <div className="w-24 h-24 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                          <CheckCircle2 size={50} />
-                       </div>
-                       <div>
-                          <h4 className="text-3xl font-black text-emerald-400 italic">¡Pago Exitoso!</h4>
-                          <p className="text-slate-300 mt-2">Tu plan se ha actualizado correctamente. Bienvenido a <b>GastroFlow {showCheckout.name}</b>.</p>
-                       </div>
+                  <button
+                    onClick={handleConfirmPayment}
+                    className="w-full py-5 bg-[#009EE3] hover:bg-[#0089C7] text-white rounded-2xl font-black text-xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3"
+                  >
+                    Suscribirme ahora <Sparkles size={20} />
+                  </button>
+                </>
+              )}
 
-                       {reconciliationNotice && (
-                         <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl flex items-start gap-3 text-left animate-in slide-in-from-bottom-2 duration-700 delay-300">
-                            <Users className="text-amber-500 flex-shrink-0 mt-1" size={20} />
-                            <div>
-                               <p className="text-xs font-black text-amber-500 uppercase tracking-widest mb-1">Ajuste de Equipo</p>
-                               <p className="text-xs text-slate-400 font-medium">Debido al límite de usuarios del Plan {showCheckout.name}, se ha mantenido activo solo al <b>Administrador</b>. Los demás usuarios han sido suspendidos temporalmente.</p>
-                            </div>
-                         </div>
-                       )}
+              {checkoutStatus === 'processing' && (
+                <div className="py-12 flex flex-col items-center text-center space-y-6">
+                  <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center">
+                    <Loader2 size={40} className="animate-spin text-[#009EE3]" />
+                  </div>
+                  <div>
+                    <h4 className="text-2xl font-black text-slate-100">Procesando Pago</h4>
+                    <p className="text-slate-400 mt-2">Estamos conectando con Mercado Pago para confirmar tu transacción...</p>
+                  </div>
+                </div>
+              )}
 
-                       <div className="w-full pt-4">
-                          <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-                             <div className="h-full bg-emerald-500 animate-progress"></div>
-                          </div>
-                       </div>
+              {checkoutStatus === 'success' && (
+                <div className="py-12 flex flex-col items-center text-center space-y-6 animate-in zoom-in-95 duration-500">
+                  <div className="w-24 h-24 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                    <CheckCircle2 size={50} />
+                  </div>
+                  <div>
+                    <h4 className="text-3xl font-black text-emerald-400 italic">¡Pago Exitoso!</h4>
+                    <p className="text-slate-300 mt-2">Tu plan se ha actualizado correctamente. Bienvenido a <b>GastroFlow {showCheckout.name}</b>.</p>
+                  </div>
+
+                  {reconciliationNotice && (
+                    <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl flex items-start gap-3 text-left animate-in slide-in-from-bottom-2 duration-700 delay-300">
+                      <Users className="text-amber-500 flex-shrink-0 mt-1" size={20} />
+                      <div>
+                        <p className="text-xs font-black text-amber-500 uppercase tracking-widest mb-1">Ajuste de Equipo</p>
+                        <p className="text-xs text-slate-400 font-medium">Debido al límite de usuarios del Plan {showCheckout.name}, se ha mantenido activo solo al <b>Administrador</b>. Los demás usuarios han sido suspendidos temporalmente.</p>
+                      </div>
                     </div>
-                 )}
-              </div>
-           </div>
+                  )}
+
+                  <div className="w-full pt-4">
+                    <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 animate-progress"></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

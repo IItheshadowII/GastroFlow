@@ -25,6 +25,11 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// Mercado Pago Initialization
+import { MercadoPagoConfig, PreApproval } from 'mercadopago';
+const mpClient = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN || '' });
+const preapproval = new PreApproval(mpClient);
+
 // Test DB Connection
 pool.connect((err, client, release) => {
   if (err) {
@@ -47,7 +52,7 @@ const isValidTable = (table) => VALID_TABLES.includes(table);
 app.get('/api/:resource', async (req, res) => {
   const { resource } = req.params;
   const { tenantId } = req.query;
-  
+
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
 
@@ -62,7 +67,7 @@ app.get('/api/:resource', async (req, res) => {
 
     // Default sorting
     if (resource === 'orders' || resource === 'audit_logs') {
-        query += params.length ? ` ORDER BY created_at DESC` : ` ORDER BY created_at DESC`;
+      query += params.length ? ` ORDER BY created_at DESC` : ` ORDER BY created_at DESC`;
     }
 
     const result = await pool.query(query, params);
@@ -77,17 +82,17 @@ app.get('/api/:resource', async (req, res) => {
 app.post('/api/:resource', async (req, res) => {
   const { resource } = req.params;
   const data = req.body;
-  
+
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
-    
+
     const keys = Object.keys(data);
     const values = Object.values(data);
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-    
+
     const query = `INSERT INTO ${resource} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`;
     const result = await pool.query(query, values);
-    
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -99,16 +104,16 @@ app.post('/api/:resource', async (req, res) => {
 app.put('/api/:resource/:id', async (req, res) => {
   const { resource, id } = req.params;
   const data = req.body;
-  
+
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
-    
+
     const updates = Object.keys(data).map((key, i) => `${key} = $${i + 2}`).join(', ');
     const values = [id, ...Object.values(data)];
-    
+
     const query = `UPDATE ${resource} SET ${updates} WHERE id = $1 RETURNING *`;
     const result = await pool.query(query, values);
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -120,12 +125,12 @@ app.put('/api/:resource/:id', async (req, res) => {
 app.delete('/api/:resource/:id', async (req, res) => {
   const { resource, id } = req.params;
   const { tenantId } = req.query;
-  
+
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
 
     // --- BUSINESS VALIDATIONS ---
-    
+
     // Tables: Check for open orders
     if (resource === 'tables') {
       const openOrders = await pool.query(
@@ -135,7 +140,7 @@ app.delete('/api/:resource/:id', async (req, res) => {
       if (openOrders.rows.length > 0) {
         return res.status(400).json({ error: 'No se puede eliminar una mesa con pedidos abiertos' });
       }
-      
+
       // Soft delete if has history
       const hasHistory = await pool.query(`SELECT 1 FROM orders WHERE table_id = $1 LIMIT 1`, [id]);
       if (hasHistory.rows.length > 0) {
@@ -155,7 +160,7 @@ app.delete('/api/:resource/:id', async (req, res) => {
       if (inActiveOrder.rows.length > 0) {
         return res.status(400).json({ error: 'El producto está en pedidos activos' });
       }
-      
+
       const hasHistory = await pool.query(`SELECT 1 FROM order_items WHERE product_id = $1 LIMIT 1`, [id]);
       if (hasHistory.rows.length > 0) {
         await pool.query(`UPDATE products SET is_active = false WHERE id = $1`, [id]);
@@ -170,8 +175,8 @@ app.delete('/api/:resource/:id', async (req, res) => {
         [id]
       );
       if (parseInt(hasProducts.rows[0].count) > 0) {
-        return res.status(400).json({ 
-          error: `La categoría tiene ${hasProducts.rows[0].count} productos activos` 
+        return res.status(400).json({
+          error: `La categoría tiene ${hasProducts.rows[0].count} productos activos`
         });
       }
     }
@@ -209,8 +214,8 @@ app.delete('/api/:resource/:id', async (req, res) => {
         [id]
       );
       if (parseInt(usersWithRole.rows[0].count) > 0) {
-        return res.status(400).json({ 
-          error: `Hay ${usersWithRole.rows[0].count} usuarios con este rol` 
+        return res.status(400).json({
+          error: `Hay ${usersWithRole.rows[0].count} usuarios con este rol`
         });
       }
     }
@@ -228,23 +233,70 @@ app.delete('/api/:resource/:id', async (req, res) => {
 
 // License Check Endpoint (For On-Premise Clients)
 app.post('/api/license/verify', async (req, res) => {
-    const { licenseKey, tenantId } = req.body;
-    
-    // Logic: Buscar el tenant por ID o alguna Key y verificar subscription_status
-    try {
-        const result = await pool.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
-        const tenant = result.rows[0];
+  const { licenseKey, tenantId } = req.body;
 
-        if (!tenant) return res.status(404).json({ valid: false, message: 'Tenant not found' });
-        
-        if (tenant.subscription_status === 'ACTIVE') {
-            return res.json({ valid: true, plan: tenant.plan, status: 'ACTIVE' });
-        } else {
-            return res.json({ valid: false, status: tenant.subscription_status, message: 'Subscription inactive' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: 'Verification failed' });
+  // Logic: Buscar el tenant por ID o alguna Key y verificar subscription_status
+  try {
+    const result = await pool.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
+    const tenant = result.rows[0];
+
+    if (!tenant) return res.status(404).json({ valid: false, message: 'Tenant not found' });
+
+    if (tenant.subscription_status === 'ACTIVE') {
+      return res.json({ valid: true, plan: tenant.plan, status: 'ACTIVE' });
+    } else {
+      return res.json({ valid: false, status: tenant.subscription_status, message: 'Subscription inactive' });
     }
+  } catch (error) {
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+// --- MERCADO PAGO ROUTES ---
+
+app.post('/api/subscriptions', async (req, res) => {
+  const { tenantId, planId, price, email, backUrl } = req.body;
+
+  try {
+    const response = await preapproval.create({
+      body: {
+        reason: `Suscripción GastroFlow ${planId}`,
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: "months",
+          transaction_amount: price,
+          currency_id: "ARS"
+        },
+        back_url: backUrl || "https://gastroflow.accesoit.com.ar/billing",
+        payer_email: email || "test_user_123456@testuser.com",
+        external_reference: tenantId,
+        status: "pending"
+      }
+    });
+
+    res.json({ init_point: response.init_point, id: response.id });
+  } catch (error) {
+    console.error('Error creating subscription:', error);
+    res.status(500).json({ error: 'Failed to create subscription', details: error.message });
+  }
+});
+
+app.post('/api/webhooks/mercadopago', async (req, res) => {
+  const { type, data } = req.body;
+  const { id } = data || {};
+
+  console.log('Webhook received:', type, id);
+
+  try {
+    if (type === 'subscription_preapproval') {
+      // Logic to update tenant status would go here
+      // For now we just log it as we need to fetch the preapproval details
+    }
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.sendStatus(500);
+  }
 });
 
 // Serve Static Files (Vite Build)

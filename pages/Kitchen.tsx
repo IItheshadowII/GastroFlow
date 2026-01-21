@@ -7,7 +7,7 @@ import {
 import { db } from '../services/db';
 import { Order, OrderItem, Table } from '../types';
 
-export const KitchenPage: React.FC<{ tenantId: string }> = ({ tenantId }) => {
+export const KitchenPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({ tenantId, isCloud = false }) => {
   const [activeOrders, setActiveOrders] = useState<Order[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,67 @@ export const KitchenPage: React.FC<{ tenantId: string }> = ({ tenantId }) => {
     };
   }, [tenantId]);
 
-  const refreshData = () => {
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('gastroflow_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const refreshData = async () => {
+    if (isCloud) {
+      try {
+        const headers = getAuthHeaders();
+        const [ordersRes, tablesRes] = await Promise.all([
+          fetch('/api/orders', { headers }),
+          fetch('/api/tables', { headers }),
+        ]);
+
+        let orders: Order[] = [];
+        if (ordersRes.ok) {
+          const apiOrders = await ordersRes.json();
+          orders = (apiOrders as any[]).map(o => ({
+            id: o.id,
+            tenantId: o.tenant_id,
+            tableId: o.table_id,
+            items: o.items || [],
+            status: o.status,
+            total: Number(o.total || 0),
+            paymentMethod: o.payment_method || undefined,
+            openedAt: o.opened_at,
+            closedAt: o.closed_at || undefined,
+            closedBy: o.closed_by || undefined,
+          }));
+        }
+
+        let tablesData: Table[] = [];
+        if (tablesRes.ok) {
+          const apiTables = await tablesRes.json();
+          tablesData = (apiTables as any[])
+            .filter(t => t.is_active !== false)
+            .map(t => ({
+              id: t.id,
+              tenantId: t.tenant_id,
+              number: t.number,
+              capacity: t.capacity,
+              zone: t.zone,
+              status: t.status,
+              isActive: t.is_active !== false,
+            }));
+        }
+
+        const filteredOrders = orders.filter(o =>
+          o.status === 'OPEN' && o.items.some((i: any) => i.status === 'PREPARING' || i.status === 'READY')
+        );
+
+        setActiveOrders(filteredOrders);
+        setTables(tablesData);
+      } catch (err) {
+        console.error('Error cargando datos de cocina desde API:', err);
+      }
+      return;
+    }
+
     const orders = db.query<Order>('orders', tenantId)
       .filter(o => o.status === 'OPEN' && o.items.some(i => i.status === 'PREPARING' || i.status === 'READY'));
     
@@ -33,7 +93,35 @@ export const KitchenPage: React.FC<{ tenantId: string }> = ({ tenantId }) => {
     setTables(tablesData);
   };
 
-  const handleMarkAsReady = (orderId: string, productId: string) => {
+  const handleMarkAsReady = async (orderId: string, productId: string) => {
+    if (isCloud) {
+      try {
+        const order = activeOrders.find(o => o.id === orderId);
+        if (!order) return;
+        const items = order.items.map(item =>
+          item.productId === productId && item.status !== 'DELIVERED'
+            ? { ...item, status: 'READY' as any }
+            : item
+        );
+        const headers = getAuthHeaders();
+        const res = await fetch(`/api/orders/${orderId}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ items }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          alert(data?.error || 'No se pudo actualizar el pedido.');
+        } else {
+          refreshData();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error de red al actualizar el pedido.');
+      }
+      return;
+    }
+
     db.updateOrderItemStatus(orderId, productId, 'READY', tenantId);
     refreshData();
   };

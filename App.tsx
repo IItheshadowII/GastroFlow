@@ -1649,7 +1649,7 @@ const App: React.FC = () => {
           {currentActivePage === 'dashboard' && <Dashboard tenantId={tenant.id} />}
           {currentActivePage === 'reports' && <ReportsPage tenantId={tenant.id} />}
           {currentActivePage === 'catalog' && <CatalogPage tenantId={tenant.id} user={user} />}
-          {currentActivePage === 'kitchen' && <KitchenPage tenantId={tenant.id} />}
+          {currentActivePage === 'kitchen' && <KitchenPage tenantId={tenant.id} isCloud={isCloud} />}
           {currentActivePage === 'tables' && <TablesPage tenantId={tenant.id} user={user} tenant={tenant} isCloud={isCloud} />}
           {currentActivePage === 'users' && <UsersRolesPage tenantId={tenant.id} tenant={tenant} isCloud={isCloud} />}
           {currentActivePage === 'billing' && <BillingPage tenant={tenant} user={user} onUpdate={refreshTenantData} />}

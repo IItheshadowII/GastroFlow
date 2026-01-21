@@ -38,6 +38,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
 export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenant | null; isCloud?: boolean }> = ({ tenantId, user, tenant: tenantProp, isCloud = false }) => {
   const [tables, setTables] = useState<Table[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [filterZone, setFilterZone] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
@@ -133,6 +134,54 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     return (Math.max(...numbers) + 1).toString();
   };
 
+  const findActiveOrderForTable = (tableId: string): Order | undefined => {
+    if (isCloud) {
+      return orders.find(o => o.tableId === tableId && o.status === 'OPEN');
+    }
+    return db.getActiveOrderForTable(tableId, tenantId);
+  };
+
+  const saveOrderToApi = async (order: Order) => {
+    const headers = getAuthHeaders();
+    const payload: any = {
+      table_id: order.tableId,
+      status: order.status,
+      total: order.total,
+      payment_method: order.paymentMethod || null,
+      opened_at: order.openedAt,
+      closed_at: order.closedAt || null,
+      closed_by: order.closedBy || null,
+      items: order.items,
+    };
+
+    const method = order.id.startsWith('tmp-') ? 'POST' : 'PUT';
+    const url = method === 'POST' ? '/api/orders' : `/api/orders/${order.id}`;
+
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || 'No se pudo guardar la comanda');
+    }
+    const saved = await res.json();
+    const savedOrder: Order = {
+      id: saved.id,
+      tenantId: saved.tenant_id,
+      tableId: saved.table_id,
+      items: saved.items || [],
+      status: saved.status,
+      total: Number(saved.total || 0),
+      paymentMethod: saved.payment_method || undefined,
+      openedAt: saved.opened_at,
+      closedAt: saved.closed_at || undefined,
+      closedBy: saved.closed_by || undefined,
+    };
+    return savedOrder;
+  };
+
   const handleTableClick = (table: Table) => {
     if (table.status === 'AVAILABLE') {
       setActiveTable(table);
@@ -140,14 +189,27 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
       setIsModalOpen(true);
     } else {
       setActiveTable(table);
-      const order = db.getActiveOrderForTable(table.id, tenantId);
-      if (order) {
-        setActiveOrder(order);
+
+      if (isCloud) {
+        const existing = findActiveOrderForTable(table.id);
+        if (existing) {
+          setActiveOrder(existing);
+          setIsOrderModalOpen(true);
+        } else {
+          // Si no hay comanda abierta, se crea al agregar el primer producto
+          setActiveOrder(null);
+          setIsOrderModalOpen(true);
+        }
       } else {
-        const newOrder = db.createOrder(table.id, tenantId);
-        setActiveOrder(newOrder);
+        const order = findActiveOrderForTable(table.id);
+        if (order) {
+          setActiveOrder(order);
+        } else {
+          const newOrder = db.createOrder(table.id, tenantId);
+          setActiveOrder(newOrder);
+        }
+        setIsOrderModalOpen(true);
       }
-      setIsOrderModalOpen(true);
     }
   };
 
@@ -264,7 +326,50 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     }, 400);
   };
 
-  const addItemToActiveOrder = (product: Product) => {
+  const addItemToActiveOrder = async (product: Product) => {
+    if (!activeTable) return;
+
+    if (isCloud) {
+      try {
+        let order = activeOrder || findActiveOrderForTable(activeTable.id) || {
+          id: `tmp-${Date.now()}`,
+          tenantId,
+          tableId: activeTable.id,
+          items: [],
+          status: 'OPEN',
+          total: 0,
+          openedAt: new Date().toISOString(),
+        } as Order;
+
+        const items = [...order.items];
+        const existing = items.find(i => i.productId === product.id && i.status === 'PENDING');
+        if (existing) {
+          existing.quantity += 1;
+        } else {
+          items.push({
+            productId: product.id,
+            name: product.name,
+            quantity: 1,
+            price: product.price,
+            status: 'PENDING',
+          });
+        }
+        const total = items.reduce((acc, i) => acc + i.price * i.quantity, 0);
+        order = { ...order, items, total };
+
+        const saved = await saveOrderToApi(order);
+        setActiveOrder(saved);
+        setOrders(prev => {
+          const others = prev.filter(o => o.id !== saved.id);
+          return [...others, saved];
+        });
+      } catch (err: any) {
+        console.error(err);
+        alert(err.message || 'No se pudo agregar el producto a la comanda.');
+      }
+      return;
+    }
+
     if (!activeOrder) return;
     db.addItemsToOrder(activeOrder.id, tenantId, [{
       productId: product.id,
@@ -275,39 +380,136 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     setActiveOrder(db.getActiveOrderForTable(activeTable!.id, tenantId) || null);
   };
 
-  const removeItemFromActiveOrder = (productId: string) => {
-    if (!activeOrder) return;
+  const removeItemFromActiveOrder = async (productId: string) => {
+    if (!activeOrder || !activeTable) return;
     const item = activeOrder.items.find(i => i.productId === productId);
     if (!item) return;
 
     if (item.status !== 'PENDING' && !window.confirm('Este producto ya fue enviado a cocina. ¿Realmente deseas eliminarlo?')) {
         return;
     }
-    if (window.confirm('¿Deseas eliminar este producto de la comanda? Se devolverá al stock.')) {
-        const updated = db.removeItemFromOrder(activeOrder.id, tenantId, productId);
-        setActiveOrder(updated);
+    if (!window.confirm('¿Deseas eliminar este producto de la comanda? Se devolverá al stock.')) {
+        return;
     }
+
+    if (isCloud) {
+      try {
+        const remaining = activeOrder.items.filter(i => i.productId !== productId);
+        const total = remaining.reduce((acc, i) => acc + i.price * i.quantity, 0);
+        const updated: Order = { ...activeOrder, items: remaining, total };
+        const saved = await saveOrderToApi(updated);
+        setActiveOrder(saved);
+        setOrders(prev => {
+          const others = prev.filter(o => o.id !== saved.id);
+          return [...others, saved];
+        });
+      } catch (err: any) {
+        console.error(err);
+        alert(err.message || 'No se pudo actualizar la comanda.');
+      }
+      return;
+    }
+
+    const updated = db.removeItemFromOrder(activeOrder.id, tenantId, productId);
+    setActiveOrder(updated);
   };
 
-  const handleSendToKitchen = () => {
-    if (!activeOrder) return;
+  const handleSendToKitchen = async () => {
+    if (!activeOrder || !activeTable) return;
+
+    if (isCloud) {
+      try {
+        const items = activeOrder.items.map(item =>
+          item.status === 'PENDING'
+            ? { ...item, status: 'PREPARING' as OrderItemStatus, sentAt: new Date().toISOString() }
+            : item
+        );
+        const updated: Order = { ...activeOrder, items };
+        const saved = await saveOrderToApi(updated);
+        setActiveOrder(saved);
+        setOrders(prev => {
+          const others = prev.filter(o => o.id !== saved.id);
+          return [...others, saved];
+        });
+        alert('Pedido enviado a cocina correctamente.');
+      } catch (err: any) {
+        console.error(err);
+        alert(err.message || 'No se pudo enviar el pedido a cocina.');
+      }
+      return;
+    }
+
     db.sendOrderToKitchen(activeOrder.id, tenantId);
     setActiveOrder(db.getActiveOrderForTable(activeTable!.id, tenantId) || null);
     alert('Pedido enviado a cocina correctamente.');
   };
 
-  const handleServeReadyItems = () => {
-    if (!activeOrder) return;
+  const handleServeReadyItems = async () => {
+    if (!activeOrder || !activeTable) return;
+
+    if (isCloud) {
+      try {
+        const items = activeOrder.items.map(item =>
+          item.status === 'READY' ? { ...item, status: 'DELIVERED' as OrderItemStatus } : item
+        );
+        const updated: Order = { ...activeOrder, items };
+        const saved = await saveOrderToApi(updated);
+        setActiveOrder(saved);
+        setOrders(prev => {
+          const others = prev.filter(o => o.id !== saved.id);
+          return [...others, saved];
+        });
+        refreshData();
+      } catch (err: any) {
+        console.error(err);
+        alert(err.message || 'No se pudo actualizar la comanda.');
+      }
+      return;
+    }
+
     db.deliverReadyItems(activeOrder.id, tenantId);
     setActiveOrder(db.getActiveOrderForTable(activeTable!.id, tenantId) || null);
     refreshData();
   };
 
-  const handleCloseOrder = (paymentMethod: any) => {
-    if (!activeOrder) return;
+  const handleCloseOrder = async (paymentMethod: any) => {
+    if (!activeOrder || !activeTable) return;
     
     if (activeOrder.items.length === 0) {
       alert('No se puede cobrar una mesa sin productos.');
+      return;
+    }
+
+    if (isCloud) {
+      try {
+        const finalizedItems = activeOrder.items.map(item => ({ ...item, status: 'DELIVERED' as OrderItemStatus }));
+        const updated: Order = {
+          ...activeOrder,
+          items: finalizedItems,
+          status: 'PAID',
+          paymentMethod,
+          closedAt: new Date().toISOString(),
+          closedBy: user.id,
+        };
+        const saved = await saveOrderToApi(updated);
+
+        // Liberar mesa en backend
+        const headers = getAuthHeaders();
+        await fetch(`/api/tables/${activeTable.id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ status: 'AVAILABLE' }),
+        });
+
+        setOrders(prev => prev.filter(o => o.id !== saved.id));
+        setIsOrderModalOpen(false);
+        setActiveOrder(null);
+        setActiveTable(null);
+        await refreshData();
+      } catch (err: any) {
+        console.error(err);
+        alert(err.message || 'No se pudo cerrar la comanda.');
+      }
       return;
     }
 
@@ -352,7 +554,9 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
         {filteredTables.map(table => {
-          const tableOrder = db.getActiveOrderForTable(table.id, tenantId);
+          const tableOrder = isCloud
+            ? orders.find(o => o.tableId === table.id && o.status === 'OPEN')
+            : db.getActiveOrderForTable(table.id, tenantId);
           const hasReady = tableOrder?.items.some(i => i.status === 'READY');
           
           return (

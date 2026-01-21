@@ -356,6 +356,12 @@ const ensureSchema = async () => {
       CREATE UNIQUE INDEX IF NOT EXISTS ux_billing_mp_subscription_id ON billing_history(mp_subscription_id);
     `);
 
+    // Orders: asegurar columna items (JSONB) para guardar la comanda completa
+    await client.query(`
+      ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
+    `);
+
     // Trial history: rastrear emails que ya tuvieron trial (anti-abuso)
     await client.query(`
       CREATE TABLE IF NOT EXISTS trial_history (
@@ -1874,7 +1880,9 @@ app.get('/api/:resource', async (req, res) => {
     }
 
     // Default sorting
-    if (resource === 'orders' || resource === 'audit_logs') {
+    if (resource === 'orders') {
+      query += params.length ? ` ORDER BY opened_at DESC` : ` ORDER BY opened_at DESC`;
+    } else if (resource === 'audit_logs') {
       query += params.length ? ` ORDER BY created_at DESC` : ` ORDER BY created_at DESC`;
     }
 

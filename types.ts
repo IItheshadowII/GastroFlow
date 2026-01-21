@@ -85,6 +85,7 @@ export interface Table {
 export type OrderItemStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED';
 
 export interface OrderItem {
+  // En modo cloud se serializa tal cual en orders.items (JSONB)
   productId: string;
   name: string;
   quantity: number;

@@ -80,7 +80,8 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
           const errMsg = data?.error || 'Credenciales inválidas';
           // Common case: email belongs to a global admin (there will be no tenant candidates)
           // We try admin-login once; if it fails, we fall back to showing the original error.
-          await tryAdminLoginAndRedirect();
+          const redirected = await tryAdminLoginAndRedirect();
+          if (redirected) return;
           setError(errMsg);
           return;
         }

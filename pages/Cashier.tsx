@@ -8,7 +8,7 @@ import {
   Receipt, UserCheck, Scale, AlertCircle
 } from 'lucide-react';
 
-export const CashierPage: React.FC<{ tenantId: string, user: User }> = ({ tenantId, user }) => {
+export const CashierPage: React.FC<{ tenantId: string, user: User; isCloud?: boolean }> = ({ tenantId, user, isCloud = false }) => {
   const [activeShift, setActiveShift] = useState<Shift | undefined>(undefined);
   const [closedShifts, setClosedShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,10 +25,77 @@ export const CashierPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
 
   useEffect(() => {
     refreshData();
-  }, [tenantId]);
+  }, [tenantId, isCloud]);
 
-  const refreshData = () => {
+  const refreshData = async () => {
     try {
+      if (isCloud) {
+        const token = localStorage.getItem('gastroflow_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const [shiftsRes, ordersRes] = await Promise.all([
+          fetch('/api/shifts', { headers }),
+          fetch('/api/orders', { headers }),
+        ]);
+
+        let fetchedShifts: any[] = [];
+        if (shiftsRes.ok) fetchedShifts = await shiftsRes.json();
+        let fetchedOrders: any[] = [];
+        if (ordersRes.ok) fetchedOrders = await ordersRes.json();
+
+        const openShift = fetchedShifts.find(s => s.status === 'OPEN');
+
+        if (openShift) {
+          const ordersInShift = fetchedOrders.filter(o => o.status === 'PAID' && o.closed_at && new Date(o.closed_at) >= new Date(openShift.opened_at));
+          const stats = {
+            total: ordersInShift.reduce((acc: number, o: any) => acc + Number(o.total || 0), 0),
+            cash: ordersInShift.filter(o => o.payment_method === 'CASH').reduce((acc: number, o: any) => acc + Number(o.total || 0), 0),
+            card: ordersInShift.filter(o => o.payment_method === 'CARD').reduce((acc: number, o: any) => acc + Number(o.total || 0), 0),
+            count: ordersInShift.length
+          };
+
+          setActiveShift({
+            id: openShift.id,
+            tenantId: openShift.tenant_id,
+            openedAt: openShift.opened_at,
+            openedBy: openShift.opened_by,
+            initialCash: Number(openShift.initial_cash || 0),
+            totalSales: Number(openShift.total_sales || 0),
+            cashSales: Number(openShift.cash_sales || stats.cash || 0),
+            cardSales: Number(openShift.card_sales || stats.card || 0),
+            ordersCount: Number(openShift.orders_count || stats.count || 0),
+            status: openShift.status,
+          } as Shift);
+
+          setCurrentShiftSales(stats);
+          setFinalCash(prev => prev === 0 ? (Number(openShift.initial_cash || 0) + stats.cash) : prev);
+        } else {
+          setActiveShift(undefined);
+          setFinalCash(0);
+          setCurrentShiftSales({ total: 0, cash: 0, card: 0, count: 0 });
+        }
+
+        const closed = fetchedShifts.filter((s: any) => s.status === 'CLOSED').map((s: any) => ({
+          id: s.id,
+          tenantId: s.tenant_id,
+          openedAt: s.opened_at,
+          closedAt: s.closed_at,
+          openedBy: s.opened_by,
+          closedBy: s.closed_by,
+          initialCash: Number(s.initial_cash || 0),
+          finalCash: Number(s.final_cash || 0),
+          totalSales: Number(s.total_sales || 0),
+          cashSales: Number(s.cash_sales || 0),
+          cardSales: Number(s.card_sales || 0),
+          ordersCount: Number(s.orders_count || 0),
+          status: s.status,
+        } as Shift));
+
+        setClosedShifts(closed.sort((a: Shift, b: Shift) => new Date(b.closedAt!).getTime() - new Date(a.closedAt!).getTime()));
+        return;
+      }
+
       const shift = db.getActiveShift(tenantId);
       setActiveShift(shift);
 
@@ -48,7 +115,6 @@ export const CashierPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
         };
         
         setCurrentShiftSales(stats);
-        // Solo seteamos el finalCash si es 0 (para no sobreescribir lo que el usuario está contando)
         setFinalCash(prev => prev === 0 ? (shift.initialCash + stats.cash) : prev);
       } else {
         setFinalCash(0);
@@ -69,9 +135,17 @@ export const CashierPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
     if (initialCash < 0) return alert("El monto inicial no puede ser negativo");
     setLoading(true);
     try {
-      db.openShift(tenantId, user.id, initialCash);
-      refreshData();
-      setInitialCash(0);
+      if (isCloud) {
+        const token = localStorage.getItem('gastroflow_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        fetch('/api/shifts', { method: 'POST', headers, body: JSON.stringify({ initial_cash: initialCash }) }).then(() => refreshData());
+        setInitialCash(0);
+      } else {
+        db.openShift(tenantId, user.id, initialCash);
+        refreshData();
+        setInitialCash(0);
+      }
     } catch (error) {
       alert("Error al abrir turno");
     } finally {
@@ -79,7 +153,7 @@ export const CashierPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
     }
   };
 
-  const handleCloseShift = () => {
+  const handleCloseShift = async () => {
     if (!activeShift) return;
     
     // Si no se ha mostrado la confirmación, la mostramos
@@ -90,11 +164,20 @@ export const CashierPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
 
     setLoading(true);
     try {
-      db.closeShift(activeShift.id, tenantId, user.id, finalCash);
-      // Forzamos el reset de estados locales
-      setShowConfirm(false);
-      setActiveShift(undefined);
-      refreshData();
+      if (isCloud) {
+        const token = localStorage.getItem('gastroflow_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        await fetch(`/api/shifts/${activeShift.id}`, { method: 'PUT', headers, body: JSON.stringify({ final_cash: finalCash, status: 'CLOSED' }) });
+        setShowConfirm(false);
+        setActiveShift(undefined);
+        await refreshData();
+      } else {
+        db.closeShift(activeShift.id, tenantId, user.id, finalCash);
+        setShowConfirm(false);
+        setActiveShift(undefined);
+        refreshData();
+      }
     } catch (error) {
       console.error("Error al cerrar turno:", error);
       alert("Ocurrió un error al intentar cerrar el turno. Por favor, intenta de nuevo.");

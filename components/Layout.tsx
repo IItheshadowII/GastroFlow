@@ -21,7 +21,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { db } from '../services/db';
-import { PlanTier } from '../types';
+import { PlanTier, SubscriptionStatus } from '../types';
 import { PLANS } from '../constants';
 
 interface LayoutProps {
@@ -56,6 +56,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, active
   const permissions = userRole?.permissions || [];
   const tenant = db.getTenant(user.tenantId);
 
+  // Determinar si está en TRIAL activo (no expirado)
+  const now = Date.now();
+  const trialEndsAt = tenant?.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
+  const isTrialActive = tenant?.subscriptionStatus === SubscriptionStatus.TRIAL && 
+                        trialEndsAt && trialEndsAt.getTime() > now;
+
   const menuItems = [
     { id: 'tables', label: 'Salón', icon: TableIcon, permission: 'tables.view' },
     { id: 'kitchen', label: 'Cocina', icon: ChefHat, permission: 'kitchen.view' },
@@ -67,12 +73,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, active
     { id: 'billing', label: 'Suscripción', icon: CreditCard, permission: 'billing.manage' },
   ];
 
-  // Filtrar por permisos Y por lógica de Plan SaaS
+  // Durante TRIAL activo: mostrar TODAS las funciones
+  // Después del trial o con suscripción normal: filtrar por permisos del rol
   const allowedMenuItems = menuItems.filter(item => {
-    const hasPerm = permissions.includes(item.permission);
+    // Durante trial activo, dar acceso a todo excepto restricciones de plan
+    const hasPerm = isTrialActive ? true : permissions.includes(item.permission);
     
-    // El módulo de cocina solo existe para planes multi-usuario
-    if (item.id === 'kitchen' && tenant) {
+    // El módulo de cocina solo existe para planes multi-usuario (excepto en trial que se muestra todo)
+    if (item.id === 'kitchen' && tenant && !isTrialActive) {
       const isMultiUserPlan = PLANS[tenant.plan].limits.users > 1;
       return hasPerm && isMultiUserPlan;
     }

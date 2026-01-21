@@ -1219,7 +1219,19 @@ const App: React.FC = () => {
   }
 
   // Multi-tenant Billing Lock
-  const isLocked = tenant.subscriptionStatus !== SubscriptionStatus.ACTIVE;
+  const now = Date.now();
+  const trialEndsAt = tenant.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
+  const isTrial = tenant.subscriptionStatus === SubscriptionStatus.TRIAL;
+  const isTrialExpired = isTrial && trialEndsAt && trialEndsAt.getTime() <= now;
+  const isLocked =
+    tenant.subscriptionStatus === SubscriptionStatus.PAST_DUE ||
+    tenant.subscriptionStatus === SubscriptionStatus.CANCELED ||
+    tenant.subscriptionStatus === SubscriptionStatus.INACTIVE ||
+    isTrialExpired;
+
+  const trialDaysLeft = isTrial && trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now) / (1000 * 60 * 60 * 24)))
+    : null;
   const currentActivePage = isLocked ? 'billing' : activePage;
 
   // Lógica de permisos por rol
@@ -1260,6 +1272,28 @@ const App: React.FC = () => {
             className="px-10 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black transition-all shadow-xl shadow-red-600/30 active:scale-95 flex items-center gap-2"
           >
             Regularizar Cuenta <AlertTriangle size={18} />
+          </button>
+        </div>
+      )}
+
+      {!isLocked && isTrial && (
+        <div className="mb-10 p-8 bg-blue-600/10 border-2 border-blue-500/20 rounded-[2rem] flex flex-col md:flex-row items-center gap-8 text-blue-200 shadow-2xl animate-in slide-in-from-top-4 duration-500">
+          <div className="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <Store size={32} />
+          </div>
+          <div className="flex-1 text-center md:text-left">
+            <h4 className="text-xl font-black italic tracking-tight uppercase">Trial activo</h4>
+            <p className="text-sm opacity-90 mt-1 font-bold">
+              {trialDaysLeft === null
+                ? 'Tu periodo de prueba está activo. Podés elegir un plan cuando quieras.'
+                : `Te quedan ${trialDaysLeft} día(s) de prueba. Podés elegir un plan cuando quieras.`}
+            </p>
+          </div>
+          <button
+            onClick={() => setActivePage('billing')}
+            className="px-10 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black transition-all shadow-xl shadow-blue-600/30 active:scale-95 flex items-center gap-2"
+          >
+            Ver planes <LogIn size={18} />
           </button>
         </div>
       )}

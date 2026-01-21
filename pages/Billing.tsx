@@ -17,6 +17,16 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
   const [billingHistory, setBillingHistory] = React.useState<any[]>([]);
   const [syncingFromMP, setSyncingFromMP] = React.useState(false);
 
+  const now = Date.now();
+  const trialEndsAt = tenant.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
+  const isActive = tenant.subscriptionStatus === SubscriptionStatus.ACTIVE;
+  const isTrial = tenant.subscriptionStatus === SubscriptionStatus.TRIAL;
+  const isTrialActive = isTrial && (!trialEndsAt || trialEndsAt.getTime() > now);
+  const isRestricted = !isActive && !isTrialActive;
+  const trialDaysLeft = isTrialActive && trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now) / (1000 * 60 * 60 * 24)))
+    : null;
+
   const fetchBillingHistory = React.useCallback(async () => {
     try {
       const data = await db.queryAsync<any>('billing_history', tenant.id);
@@ -179,10 +189,17 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
                 </span>
                 <span className={`px-5 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.1em] flex items-center gap-2 border ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  : 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse'
+                  : isTrialActive
+                    ? 'bg-blue-600/10 text-blue-300 border-blue-500/20'
+                    : 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse'
                   }`}>
-                  <div className={`w-2 h-2 rounded-full ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`}></div>
-                  {tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? 'Servicio Activo' : 'Acceso Restringido'}
+                  <div className={`w-2 h-2 rounded-full ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
+                    ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                    : isTrialActive
+                      ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.45)]'
+                      : 'bg-red-500'
+                    }`}></div>
+                  {isActive ? 'Servicio Activo' : isTrialActive ? `Prueba Activa${trialDaysLeft !== null ? ` (${trialDaysLeft} día(s))` : ''}` : 'Acceso Restringido'}
                 </span>
               </div>
             </div>
@@ -191,9 +208,13 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
           <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 text-center min-w-[240px]">
             <p className="text-[10px] text-slate-500 uppercase font-black tracking-[0.2em] mb-2">Próximo Vencimiento</p>
             <p className="text-2xl font-black text-slate-100 italic">
-              {tenant.nextBillingDate
-                ? new Date(tenant.nextBillingDate).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
-                : 'Pendiente de Pago'}
+              {isTrialActive
+                ? (trialEndsAt
+                  ? trialEndsAt.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
+                  : 'En prueba')
+                : (tenant.nextBillingDate
+                  ? new Date(tenant.nextBillingDate).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
+                  : 'Pendiente de Pago')}
             </p>
           </div>
         </div>

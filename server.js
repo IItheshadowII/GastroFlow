@@ -296,9 +296,21 @@ const ensureSchema = async () => {
         ADD COLUMN IF NOT EXISTS slug VARCHAR(255),
         ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'BASIC',
         ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'TRIAL',
+        ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP,
         ADD COLUMN IF NOT EXISTS mercadopago_preapproval_id VARCHAR(255),
         ADD COLUMN IF NOT EXISTS next_billing_date TIMESTAMP,
         ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
+    `);
+
+    // Trial: backfill + expiración automática (idempotente)
+    await client.query(`
+      UPDATE tenants
+      SET trial_ends_at = created_at + INTERVAL '15 days'
+      WHERE trial_ends_at IS NULL AND subscription_status = 'TRIAL' AND created_at IS NOT NULL;
+
+      UPDATE tenants
+      SET subscription_status = 'INACTIVE'
+      WHERE subscription_status = 'TRIAL' AND trial_ends_at IS NOT NULL AND trial_ends_at <= NOW();
     `);
 
     // Password reset tokens
@@ -578,6 +590,26 @@ app.post('/api/app/auth/login', async (req, res) => {
   try {
     if (!email || !password) return res.status(400).json({ error: 'email/password requeridos' });
 
+    const ensureTrialForTenant = async (resolvedTenantId) => {
+      if (!isUuid(resolvedTenantId)) return;
+
+      // Si no tiene trial_ends_at (tenants viejos), lo derivamos de created_at + 15 días.
+      await pool.query(
+        `UPDATE tenants
+         SET trial_ends_at = COALESCE(trial_ends_at, created_at + INTERVAL '15 days')
+         WHERE id = $1 AND subscription_status = 'TRIAL'`,
+        [resolvedTenantId]
+      );
+
+      // Si el trial ya venció, lo marcamos INACTIVE.
+      await pool.query(
+        `UPDATE tenants
+         SET subscription_status = 'INACTIVE'
+         WHERE id = $1 AND subscription_status = 'TRIAL' AND trial_ends_at IS NOT NULL AND trial_ends_at <= NOW()`,
+        [resolvedTenantId]
+      );
+    };
+
     // Si viene tenantId (ej: selector), autenticamos directo.
     if (tenantId) {
       if (!isUuid(tenantId)) return res.status(400).json({ error: 'tenantId inválido (UUID requerido)' });
@@ -594,6 +626,8 @@ app.post('/api/app/auth/login', async (req, res) => {
       if (!user || !user.is_active) return res.status(401).json({ error: 'Credenciales inválidas' });
       const ok = await verifyPassword(password, user.password_hash);
       if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+      await ensureTrialForTenant(tenantId);
 
       await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
       const token = signToken({
@@ -664,6 +698,8 @@ app.post('/api/app/auth/login', async (req, res) => {
 
     const user = matches[0];
     const resolvedTenantId = user.tenant_id;
+
+    await ensureTrialForTenant(resolvedTenantId);
     await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
     const token = signToken({
       scope: 'tenant',
@@ -710,9 +746,9 @@ app.post('/api/app/auth/register', async (req, res) => {
     }
 
     const createdTenant = await pool.query(
-      `INSERT INTO tenants (name, slug, plan, subscription_status)
-       VALUES ($1, $2, 'BASIC', 'TRIAL')
-       RETURNING id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at`,
+      `INSERT INTO tenants (name, slug, plan, subscription_status, trial_ends_at)
+       VALUES ($1, $2, 'BASIC', 'TRIAL', NOW() + INTERVAL '15 days')
+       RETURNING id, name, slug, plan, subscription_status, trial_ends_at, mercadopago_preapproval_id, next_billing_date, created_at`,
       [tenantName, slug]
     );
     const tenant = createdTenant.rows[0];
@@ -767,6 +803,7 @@ app.post('/api/app/auth/register', async (req, res) => {
         slug: tenant.slug || '',
         plan: tenant.plan,
         subscriptionStatus: tenant.subscription_status,
+        trialEndsAt: tenant.trial_ends_at ? new Date(tenant.trial_ends_at).toISOString() : undefined,
         mercadoPagoPreapprovalId: tenant.mercadopago_preapproval_id || undefined,
         nextBillingDate: tenant.next_billing_date ? new Date(tenant.next_billing_date).toISOString() : undefined,
         createdAt: tenant.created_at ? new Date(tenant.created_at).toISOString() : new Date().toISOString(),
@@ -932,7 +969,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
 // ==========================================
 
 app.get('/api/admin/tenants', requireGlobalAdmin, async (_req, res) => {
-  const r = await pool.query('SELECT id, name, slug, plan, subscription_status, created_at FROM tenants ORDER BY created_at DESC');
+  const r = await pool.query('SELECT id, name, slug, plan, subscription_status, trial_ends_at, created_at FROM tenants ORDER BY created_at DESC');
   return res.json(r.rows);
 });
 
@@ -942,9 +979,9 @@ app.post('/api/admin/tenants', requireGlobalAdmin, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'name requerido' });
 
     const createdTenant = await pool.query(
-      `INSERT INTO tenants (name, slug)
-       VALUES ($1, $2)
-       RETURNING id, name, slug, plan, subscription_status, created_at`,
+      `INSERT INTO tenants (name, slug, subscription_status, trial_ends_at)
+       VALUES ($1, $2, 'TRIAL', NOW() + INTERVAL '15 days')
+       RETURNING id, name, slug, plan, subscription_status, trial_ends_at, created_at`,
       [name, slug || null]
     );
     const tenant = createdTenant.rows[0];
@@ -1145,6 +1182,7 @@ const syncTenantFromPreapproval = async (subscription) => {
       `UPDATE tenants SET
         plan = $1,
         subscription_status = 'ACTIVE',
+        trial_ends_at = NULL,
         mercadopago_preapproval_id = $2,
         next_billing_date = NOW() + INTERVAL '1 month'
        WHERE id = $3`,
@@ -1170,7 +1208,7 @@ const syncTenantFromPreapproval = async (subscription) => {
   }
 
   const tenantResult = await pool.query(
-    `SELECT id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at
+    `SELECT id, name, slug, plan, subscription_status, trial_ends_at, mercadopago_preapproval_id, next_billing_date, created_at
      FROM tenants WHERE id = $1`,
     [tenantId]
   );
@@ -1359,7 +1397,7 @@ app.post('/api/subscriptions/refresh', async (req, res) => {
       console.warn(`${MP_LOG_PREFIX} Refresh sin preapprovalId resoluble`, { tenantId: resolvedTenantId });
       const tenantRow = resolvedTenantId
         ? (await pool.query(
-          `SELECT id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at
+          `SELECT id, name, slug, plan, subscription_status, trial_ends_at, mercadopago_preapproval_id, next_billing_date, created_at
            FROM tenants WHERE id = $1`,
           [resolvedTenantId]
         )).rows[0]
@@ -1656,9 +1694,15 @@ app.post('/api/license/verify', async (req, res) => {
 
     if (tenant.subscription_status === 'ACTIVE') {
       return res.json({ valid: true, plan: tenant.plan, status: 'ACTIVE' });
-    } else {
-      return res.json({ valid: false, status: tenant.subscription_status, message: 'Subscription inactive' });
     }
+
+    if (tenant.subscription_status === 'TRIAL') {
+      const trialEndsAt = tenant.trial_ends_at ? new Date(tenant.trial_ends_at) : null;
+      const isTrialActive = !trialEndsAt || trialEndsAt.getTime() > Date.now();
+      return res.json({ valid: isTrialActive, plan: tenant.plan, status: isTrialActive ? 'TRIAL' : 'INACTIVE' });
+    }
+
+    return res.json({ valid: false, status: tenant.subscription_status, message: 'Subscription inactive' });
   } catch (error) {
     res.status(500).json({ error: 'Verification failed' });
   }
@@ -1675,7 +1719,7 @@ app.get('/api/tenants/:id', requireAuth, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at, settings
+      `SELECT id, name, slug, plan, subscription_status, trial_ends_at, mercadopago_preapproval_id, next_billing_date, created_at, settings
        FROM tenants WHERE id = $1`,
       [id]
     );
@@ -1689,6 +1733,7 @@ app.get('/api/tenants/:id', requireAuth, async (req, res) => {
       slug: row.slug || '',
       plan: row.plan,
       subscriptionStatus: row.subscription_status,
+      trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at).toISOString() : undefined,
       mercadoPagoPreapprovalId: row.mercadopago_preapproval_id || undefined,
       nextBillingDate: row.next_billing_date ? new Date(row.next_billing_date).toISOString() : undefined,
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
@@ -1708,7 +1753,7 @@ app.get('/api/app/tenants/:id', requireTenantUser, async (req, res) => {
     if (req.auth.tenantId !== id) return res.status(403).json({ error: 'Acceso denegado al tenant' });
 
     const result = await pool.query(
-      `SELECT id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at, settings
+      `SELECT id, name, slug, plan, subscription_status, trial_ends_at, mercadopago_preapproval_id, next_billing_date, created_at, settings
        FROM tenants WHERE id = $1`,
       [id]
     );
@@ -1721,6 +1766,7 @@ app.get('/api/app/tenants/:id', requireTenantUser, async (req, res) => {
       slug: row.slug || '',
       plan: row.plan,
       subscriptionStatus: row.subscription_status,
+      trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at).toISOString() : undefined,
       mercadoPagoPreapprovalId: row.mercadopago_preapproval_id || undefined,
       nextBillingDate: row.next_billing_date ? new Date(row.next_billing_date).toISOString() : undefined,
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),

@@ -24,6 +24,7 @@ export interface Tenant {
   slug: string;
   plan: PlanTier;
   subscriptionStatus: SubscriptionStatus;
+  trialEndsAt?: string;
   mercadoPagoPreapprovalId?: string;
   nextBillingDate?: string;
   createdAt: string;

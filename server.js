@@ -184,10 +184,12 @@ const ensureSchema = async () => {
     // Tenants: asegurar columnas necesarias
     await client.query(`
       ALTER TABLE tenants
+        ADD COLUMN IF NOT EXISTS slug VARCHAR(255),
         ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'BASIC',
         ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'TRIAL',
         ADD COLUMN IF NOT EXISTS mercadopago_preapproval_id VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS next_billing_date TIMESTAMP;
+        ADD COLUMN IF NOT EXISTS next_billing_date TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
     `);
 
     // Billing history: tabla + columnas requeridas

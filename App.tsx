@@ -29,6 +29,26 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const tryAdminLoginAndRedirect = async (): Promise<boolean> => {
+    try {
+      const adminRes = await fetch('/api/admin/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const adminData = await adminRes.json().catch(() => ({}));
+      if (adminRes.ok && adminData?.ok && adminData?.token && adminData?.user) {
+        localStorage.setItem('gastroflow_admin_token', adminData.token);
+        localStorage.setItem('gastroflow_admin_user', JSON.stringify(adminData.user));
+        window.location.href = '/admin';
+        return true;
+      }
+    } catch (e) {
+      console.error('Fallback admin login error:', e);
+    }
+    return false;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -58,32 +78,19 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
         if (!res.ok || !data?.ok || !data?.token || !data?.user) {
           // If the app-login failed because the account is global/admin, try admin login automatically
           const errMsg = data?.error || 'Credenciales inválidas';
-          if (typeof errMsg === 'string' && (errMsg.toLowerCase().includes('requiere login de tenant') || errMsg.toLowerCase().includes('deprecated') || errMsg.toLowerCase().includes('global'))) {
-            try {
-              const adminRes = await fetch('/api/admin/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-              });
-              const adminData = await adminRes.json().catch(() => ({}));
-              if (adminRes.ok && adminData?.ok && adminData?.token && adminData?.user) {
-                // store admin token and redirect to admin UI
-                localStorage.setItem('gastroflow_admin_token', adminData.token);
-                localStorage.setItem('gastroflow_admin_user', JSON.stringify(adminData.user));
-                // navigate to admin area to complete admin session
-                window.location.href = '/admin';
-                return;
-              }
-            } catch (e) {
-              console.error('Fallback admin login error:', e);
-            }
-          }
+          // Common case: email belongs to a global admin (there will be no tenant candidates)
+          // We try admin-login once; if it fails, we fall back to showing the original error.
+          await tryAdminLoginAndRedirect();
           setError(errMsg);
           return;
         }
 
         if (data.scope !== 'tenant') {
-          setError('Este frontend actualmente requiere login de tenant (no global).');
+          // In case backend returned a non-tenant scope here (or misrouted auth), try admin-login
+          const redirected = await tryAdminLoginAndRedirect();
+          if (!redirected) {
+            setError('Este frontend actualmente requiere login de tenant (no global).');
+          }
           return;
         }
 

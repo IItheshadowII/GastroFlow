@@ -387,6 +387,44 @@ const verifyPassword = async (plain, hashed) => {
   return bcrypt.compare(String(plain), String(hashed));
 };
 
+// Limpieza de datos de un tenant una vez finalizado el trial
+// - Elimina mesas, productos, órdenes, turnos, auditorías, billing, etc.
+// - Elimina todos los usuarios excepto un administrador (si existe)
+const cleanupTenantDataAfterTrial = async (tenantId) => {
+  if (!isUuid(tenantId)) return;
+
+  console.log('[TRIAL] Limpiando datos para tenant', tenantId);
+
+  // Buscar un usuario administrador para conservar
+  const adminUserRes = await pool.query(
+    `SELECT u.id
+     FROM users u
+     JOIN roles r ON r.id = u.role_id
+     WHERE u.tenant_id = $1 AND r.name = 'Administrador'
+     ORDER BY u.created_at ASC
+     LIMIT 1`,
+    [tenantId]
+  );
+  const adminUserId = adminUserRes.rows[0]?.id || null;
+
+  // Eliminar datos operativos del tenant
+  await pool.query('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE tenant_id = $1)', [tenantId]);
+  await pool.query('DELETE FROM orders WHERE tenant_id = $1', [tenantId]);
+  await pool.query('DELETE FROM tables WHERE tenant_id = $1', [tenantId]);
+  await pool.query('DELETE FROM products WHERE tenant_id = $1', [tenantId]);
+  await pool.query('DELETE FROM categories WHERE tenant_id = $1', [tenantId]);
+  await pool.query('DELETE FROM shifts WHERE tenant_id = $1', [tenantId]);
+  await pool.query('DELETE FROM audit_logs WHERE tenant_id = $1', [tenantId]);
+  await pool.query('DELETE FROM billing_history WHERE tenant_id = $1', [tenantId]);
+
+  // Eliminar usuarios, excepto el administrador principal (si existe)
+  if (adminUserId) {
+    await pool.query('DELETE FROM users WHERE tenant_id = $1 AND id <> $2', [tenantId, adminUserId]);
+  } else {
+    await pool.query('DELETE FROM users WHERE tenant_id = $1', [tenantId]);
+  }
+};
+
 const signToken = (payload) => {
   if (!JWT_SECRET) throw new Error('JWT_SECRET no configurado');
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
@@ -616,13 +654,18 @@ app.post('/api/app/auth/login', async (req, res) => {
         [resolvedTenantId]
       );
 
-      // Si el trial ya venció, lo marcamos INACTIVE.
-      await pool.query(
+      // Si el trial ya venció, lo marcamos INACTIVE y limpiamos datos.
+      const expiredRes = await pool.query(
         `UPDATE tenants
          SET subscription_status = 'INACTIVE'
-         WHERE id = $1 AND subscription_status = 'TRIAL' AND trial_ends_at IS NOT NULL AND trial_ends_at <= NOW()`,
+         WHERE id = $1 AND subscription_status = 'TRIAL' AND trial_ends_at IS NOT NULL AND trial_ends_at <= NOW()
+         RETURNING id`,
         [resolvedTenantId]
       );
+
+      if (expiredRes.rowCount > 0) {
+        await cleanupTenantDataAfterTrial(resolvedTenantId);
+      }
     };
 
     // Si viene tenantId (ej: selector), autenticamos directo.
@@ -1173,7 +1216,10 @@ app.patch('/api/admin/tenants/:tenantId/trial', requireGlobalAdmin, async (req, 
         );
       }
 
-      return res.json({ ok: true, message: 'Trial terminado' });
+      // Limpiar datos del tenant (manteniendo admin)
+      await cleanupTenantDataAfterTrial(tenantId);
+
+      return res.json({ ok: true, message: 'Trial terminado y datos limpiados' });
 
     } else if (action === 'set') {
       // Establecer fecha exacta de fin de trial
@@ -1251,10 +1297,19 @@ app.post('/api/tenants/:tenantId/users', requireAuth, requireTenantAccess, requi
       'SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND is_active = true',
       [tenantId]
     );
-    const tenantRes = await pool.query('SELECT plan FROM tenants WHERE id = $1', [tenantId]);
-    const plan = tenantRes.rows[0]?.plan || 'BASIC';
-    const limits = { BASIC: 1, PRO: 5, ENTERPRISE: 999 };
-    const userLimit = limits[plan] || 1;
+    const tenantRes = await pool.query('SELECT plan, subscription_status, trial_ends_at FROM tenants WHERE id = $1', [tenantId]);
+    const t = tenantRes.rows[0] || {};
+
+    // Durante TRIAL activo permitimos hasta 3 usuarios (incluyendo admin)
+    let userLimit;
+    if (t.subscription_status === 'TRIAL' && (!t.trial_ends_at || new Date(t.trial_ends_at) > new Date())) {
+      userLimit = 3;
+    } else {
+      const plan = t.plan || 'BASIC';
+      const limits = { BASIC: 1, PRO: 5, ENTERPRISE: 999 };
+      userLimit = limits[plan] || 1;
+    }
+
     if (parseInt(countRes.rows[0].count, 10) >= userLimit) {
       return res.status(403).json({ error: `Límite de usuarios alcanzado (${userLimit})` });
     }

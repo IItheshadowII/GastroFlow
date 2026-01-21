@@ -100,7 +100,23 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
 
   const activeUsersCount = users.filter(u => u.isActive).length;
   const effectiveTenant = tenant || tenantProp || undefined;
-  const userLimit = effectiveTenant ? PLANS[effectiveTenant.plan].limits.users : 0;
+
+  let userLimit = 0;
+  if (effectiveTenant) {
+    const now = Date.now();
+    const status = (effectiveTenant as any).subscriptionStatus || (effectiveTenant as any).subscription_status;
+    const trialEndsAt = (effectiveTenant as any).trialEndsAt || (effectiveTenant as any).trial_ends_at;
+    const isTrial = status === 'TRIAL';
+    const isTrialActive = isTrial && trialEndsAt && new Date(trialEndsAt).getTime() > now;
+
+    if (isTrialActive) {
+      // Durante trial activo: hasta 3 usuarios totales (incluyendo admin)
+      userLimit = 3;
+    } else {
+      userLimit = PLANS[effectiveTenant.plan].limits.users;
+    }
+  }
+
   const canAddMoreUsers = userLimit > 0 ? activeUsersCount < userLimit : false;
 
   const handleOpenUserModal = () => {

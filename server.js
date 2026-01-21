@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 import pg from 'pg';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
@@ -13,6 +15,12 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const JWT_SECRET = process.env.JWT_SECRET || '';
+const GLOBAL_ADMIN_BOOTSTRAP_TOKEN = process.env.GLOBAL_ADMIN_BOOTSTRAP_TOKEN || '';
+const ENFORCE_AUTH = process.env.MULTI_TENANT_ENFORCE_AUTH
+  ? process.env.MULTI_TENANT_ENFORCE_AUTH === 'true'
+  : process.env.NODE_ENV === 'production';
 
 // Middleware
 app.use(cors());
@@ -105,6 +113,74 @@ const ensureSchema = async () => {
   try {
     await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
 
+    // Global admins (fuera del ámbito tenant)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS global_admins (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        last_login TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // Roles / Users: asegurar columnas y constraints
+    await client.query(`
+      ALTER TABLE roles
+        ADD COLUMN IF NOT EXISTS permissions TEXT[] DEFAULT '{}'::text[],
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_roles_tenant_name ON roles(tenant_id, name);
+      CREATE INDEX IF NOT EXISTS idx_roles_tenant ON roles(tenant_id);
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS last_login TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+
+      CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    `);
+
+    // Trigger: user.role_id debe pertenecer al mismo tenant
+    await client.query(`
+      CREATE OR REPLACE FUNCTION ensure_user_role_same_tenant()
+      RETURNS TRIGGER AS $$
+      DECLARE
+        role_tenant UUID;
+      BEGIN
+        IF NEW.role_id IS NULL THEN
+          RETURN NEW;
+        END IF;
+
+        SELECT tenant_id INTO role_tenant FROM roles WHERE id = NEW.role_id;
+
+        IF role_tenant IS NULL THEN
+          RAISE EXCEPTION 'Role % no existe', NEW.role_id;
+        END IF;
+
+        IF role_tenant <> NEW.tenant_id THEN
+          RAISE EXCEPTION 'Role % pertenece a otro tenant (role.tenant_id=%, user.tenant_id=%)', NEW.role_id, role_tenant, NEW.tenant_id;
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_users_role_same_tenant') THEN
+          CREATE TRIGGER trg_users_role_same_tenant
+          BEFORE INSERT OR UPDATE OF role_id, tenant_id ON users
+          FOR EACH ROW
+          EXECUTE FUNCTION ensure_user_role_same_tenant();
+        END IF;
+      END $$;
+    `);
+
     // Tenants: asegurar columnas necesarias
     await client.query(`
       ALTER TABLE tenants
@@ -143,6 +219,432 @@ const ensureSchema = async () => {
     client.release();
   }
 };
+
+const hashPassword = async (plain) => {
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(String(plain), salt);
+};
+
+const verifyPassword = async (plain, hashed) => {
+  if (!hashed) return false;
+  return bcrypt.compare(String(plain), String(hashed));
+};
+
+const signToken = (payload) => {
+  if (!JWT_SECRET) throw new Error('JWT_SECRET no configurado');
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '12h' });
+};
+
+const authMiddleware = (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) {
+    req.auth = null;
+    return next();
+  }
+
+  const token = header.slice('Bearer '.length);
+  try {
+    if (!JWT_SECRET) {
+      return res.status(500).json({ error: 'JWT_SECRET no configurado' });
+    }
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.auth = decoded;
+    return next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+};
+
+const requireAuth = (req, res, next) => {
+  if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+  return next();
+};
+
+const requireGlobalAdmin = (req, res, next) => {
+  if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+  if (req.auth.scope !== 'global') return res.status(403).json({ error: 'Solo admin global' });
+  return next();
+};
+
+const requireTenantAccess = (req, res, next) => {
+  const { tenantId } = req.params;
+  if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+  if (req.auth.scope === 'global') return next();
+  if (!tenantId || req.auth.tenantId !== tenantId) return res.status(403).json({ error: 'Acceso denegado al tenant' });
+  return next();
+};
+
+const requirePermission = (perm) => (req, res, next) => {
+  if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+  if (req.auth.scope === 'global') return next();
+  const perms = Array.isArray(req.auth.permissions) ? req.auth.permissions : [];
+  if (!perms.includes(perm)) return res.status(403).json({ error: `Permiso requerido: ${perm}` });
+  return next();
+};
+
+app.use(authMiddleware);
+
+const DEFAULT_PERMISSIONS = [
+  'tables.view', 'tables.edit', 'tables.manage',
+  'kitchen.view', 'kitchen.manage',
+  'cash.view', 'cash.manage',
+  'dashboard.view', 'reports.view',
+  'menu.view', 'menu.edit',
+  'stock.view', 'stock.adjust',
+  'users.view', 'users.manage',
+  'roles.manage', 'settings.manage',
+  'billing.manage'
+];
+
+const seedDefaultRolesForTenant = async (tenantId) => {
+  // Admin
+  await pool.query(
+    `INSERT INTO roles (tenant_id, name, permissions)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id, name) DO NOTHING`,
+    [tenantId, 'Administrador', DEFAULT_PERMISSIONS]
+  );
+
+  // Encargado
+  await pool.query(
+    `INSERT INTO roles (tenant_id, name, permissions)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id, name) DO NOTHING`,
+    [tenantId, 'Encargado', [
+      'tables.view', 'tables.edit',
+      'kitchen.view', 'kitchen.manage',
+      'cash.view', 'cash.manage',
+      'dashboard.view', 'reports.view',
+      'menu.view', 'stock.view'
+    ]]
+  );
+
+  // Mozo/Camarero
+  await pool.query(
+    `INSERT INTO roles (tenant_id, name, permissions)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id, name) DO NOTHING`,
+    [tenantId, 'Mozo', ['tables.view', 'tables.edit', 'menu.view']]
+  );
+};
+
+const getTenantAdminRoleId = async (tenantId) => {
+  const r = await pool.query(
+    `SELECT id FROM roles WHERE tenant_id = $1 AND name = 'Administrador' LIMIT 1`,
+    [tenantId]
+  );
+  return r.rows[0]?.id || null;
+};
+
+// ==========================================
+// AUTH ENDPOINTS
+// ==========================================
+
+// Bootstrap del primer admin global (protegido por token de bootstrap)
+app.post('/api/auth/bootstrap-global-admin', async (req, res) => {
+  const { bootstrapToken, email, password, name } = req.body || {};
+  try {
+    if (!GLOBAL_ADMIN_BOOTSTRAP_TOKEN) {
+      return res.status(400).json({ error: 'GLOBAL_ADMIN_BOOTSTRAP_TOKEN no configurado' });
+    }
+    if (bootstrapToken !== GLOBAL_ADMIN_BOOTSTRAP_TOKEN) {
+      return res.status(403).json({ error: 'bootstrapToken inválido' });
+    }
+
+    const count = await pool.query('SELECT COUNT(*)::int AS c FROM global_admins');
+    if ((count.rows[0]?.c || 0) > 0) {
+      return res.status(400).json({ error: 'Ya existe un admin global' });
+    }
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'email/password/name requeridos' });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const created = await pool.query(
+      `INSERT INTO global_admins (email, password_hash, name)
+       VALUES ($1, $2, $3)
+       RETURNING id, email, name`,
+      [email, passwordHash, name]
+    );
+
+    const token = signToken({ scope: 'global', sub: created.rows[0].id, email: created.rows[0].email });
+    return res.json({ ok: true, token, admin: created.rows[0] });
+  } catch (error) {
+    console.error('bootstrap-global-admin error:', error);
+    return res.status(500).json({ error: 'bootstrap failed' });
+  }
+});
+
+// Login (global o tenant)
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password, tenantId } = req.body || {};
+  try {
+    if (!email || !password) return res.status(400).json({ error: 'email/password requeridos' });
+
+    // Global login si no hay tenantId
+    if (!tenantId) {
+      const r = await pool.query(
+        `SELECT id, email, password_hash, name, is_active FROM global_admins WHERE email = $1 LIMIT 1`,
+        [email]
+      );
+      const admin = r.rows[0];
+      if (!admin || !admin.is_active) return res.status(401).json({ error: 'Credenciales inválidas' });
+      const ok = await verifyPassword(password, admin.password_hash);
+      if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+      await pool.query('UPDATE global_admins SET last_login = NOW() WHERE id = $1', [admin.id]);
+      const token = signToken({ scope: 'global', sub: admin.id, email: admin.email });
+      return res.json({ ok: true, token, scope: 'global', user: { id: admin.id, email: admin.email, name: admin.name } });
+    }
+
+    if (!isUuid(tenantId)) return res.status(400).json({ error: 'tenantId inválido (UUID requerido)' });
+
+    const r = await pool.query(
+      `SELECT u.id, u.email, u.password_hash, u.name, u.is_active, u.role_id,
+              COALESCE(r.permissions, '{}'::text[]) AS permissions
+       FROM users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       WHERE u.tenant_id = $1 AND u.email = $2
+       LIMIT 1`,
+      [tenantId, email]
+    );
+
+    const user = r.rows[0];
+    if (!user || !user.is_active) return res.status(401).json({ error: 'Credenciales inválidas' });
+    const ok = await verifyPassword(password, user.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+    await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+    const token = signToken({
+      scope: 'tenant',
+      sub: user.id,
+      tenantId,
+      roleId: user.role_id,
+      permissions: user.permissions,
+      email: user.email,
+    });
+
+    return res.json({
+      ok: true,
+      token,
+      scope: 'tenant',
+      user: { id: user.id, tenantId, email: user.email, name: user.name, roleId: user.role_id, permissions: user.permissions }
+    });
+  } catch (error) {
+    console.error('login error:', error);
+    return res.status(500).json({ error: 'login failed' });
+  }
+});
+
+// Perfil actual
+app.get('/api/me', requireAuth, async (req, res) => {
+  try {
+    if (req.auth.scope === 'global') {
+      const r = await pool.query('SELECT id, email, name FROM global_admins WHERE id = $1', [req.auth.sub]);
+      return res.json({ scope: 'global', user: r.rows[0] || null });
+    }
+
+    const r = await pool.query(
+      `SELECT u.id, u.tenant_id, u.email, u.name, u.role_id,
+              COALESCE(r.permissions, '{}'::text[]) AS permissions
+       FROM users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       WHERE u.id = $1`,
+      [req.auth.sub]
+    );
+    const u = r.rows[0];
+    return res.json({
+      scope: 'tenant',
+      user: u ? { id: u.id, tenantId: u.tenant_id, email: u.email, name: u.name, roleId: u.role_id, permissions: u.permissions } : null
+    });
+  } catch (error) {
+    console.error('me error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
+// ==========================================
+// GLOBAL ADMIN: TENANT MANAGEMENT
+// ==========================================
+
+app.get('/api/admin/tenants', requireGlobalAdmin, async (_req, res) => {
+  const r = await pool.query('SELECT id, name, slug, plan, subscription_status, created_at FROM tenants ORDER BY created_at DESC');
+  return res.json(r.rows);
+});
+
+app.post('/api/admin/tenants', requireGlobalAdmin, async (req, res) => {
+  const { name, slug, adminEmail, adminPassword, adminName } = req.body || {};
+  try {
+    if (!name) return res.status(400).json({ error: 'name requerido' });
+
+    const createdTenant = await pool.query(
+      `INSERT INTO tenants (name, slug)
+       VALUES ($1, $2)
+       RETURNING id, name, slug, plan, subscription_status, created_at`,
+      [name, slug || null]
+    );
+    const tenant = createdTenant.rows[0];
+
+    await seedDefaultRolesForTenant(tenant.id);
+    const adminRoleId = await getTenantAdminRoleId(tenant.id);
+
+    let adminUser = null;
+    if (adminEmail && adminPassword && adminName) {
+      const passwordHash = await hashPassword(adminPassword);
+      const createdUser = await pool.query(
+        `INSERT INTO users (tenant_id, email, password_hash, name, role_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, TRUE)
+         RETURNING id, tenant_id, email, name, role_id`,
+        [tenant.id, adminEmail, passwordHash, adminName, adminRoleId]
+      );
+      adminUser = createdUser.rows[0];
+    }
+
+    return res.json({ ok: true, tenant, adminUser });
+  } catch (error) {
+    console.error('create tenant error:', error);
+    return res.status(500).json({ error: 'failed to create tenant' });
+  }
+});
+
+// ==========================================
+// TENANT-SCOPED: USERS & ROLES
+// ==========================================
+
+app.get('/api/tenants/:tenantId/roles', requireAuth, requireTenantAccess, async (req, res) => {
+  const { tenantId } = req.params;
+  const r = await pool.query(
+    `SELECT id, tenant_id, name, permissions, created_at
+     FROM roles WHERE tenant_id = $1 ORDER BY name ASC`,
+    [tenantId]
+  );
+  return res.json(r.rows);
+});
+
+app.post('/api/tenants/:tenantId/roles', requireAuth, requireTenantAccess, requirePermission('roles.manage'), async (req, res) => {
+  const { tenantId } = req.params;
+  const { name, permissions } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name requerido' });
+  const perms = Array.isArray(permissions) ? permissions : [];
+  const r = await pool.query(
+    `INSERT INTO roles (tenant_id, name, permissions)
+     VALUES ($1, $2, $3)
+     RETURNING id, tenant_id, name, permissions, created_at`,
+    [tenantId, name, perms]
+  );
+  return res.status(201).json(r.rows[0]);
+});
+
+app.put('/api/tenants/:tenantId/roles/:roleId', requireAuth, requireTenantAccess, requirePermission('roles.manage'), async (req, res) => {
+  const { tenantId, roleId } = req.params;
+  const { name, permissions } = req.body || {};
+  const perms = Array.isArray(permissions) ? permissions : undefined;
+
+  const r = await pool.query(
+    `UPDATE roles SET
+       name = COALESCE($3, name),
+       permissions = COALESCE($4, permissions)
+     WHERE id = $1 AND tenant_id = $2
+     RETURNING id, tenant_id, name, permissions, created_at`,
+    [roleId, tenantId, name || null, perms || null]
+  );
+  if (!r.rows[0]) return res.status(404).json({ error: 'Role not found' });
+  return res.json(r.rows[0]);
+});
+
+app.delete('/api/tenants/:tenantId/roles/:roleId', requireAuth, requireTenantAccess, requirePermission('roles.manage'), async (req, res) => {
+  const { tenantId, roleId } = req.params;
+  // Evitar borrar el rol Administrador
+  const role = await pool.query('SELECT name FROM roles WHERE id = $1 AND tenant_id = $2', [roleId, tenantId]);
+  if (!role.rows[0]) return res.status(404).json({ error: 'Role not found' });
+  if (role.rows[0].name === 'Administrador') return res.status(400).json({ error: 'No se puede eliminar el rol Administrador' });
+
+  // Validar que no haya usuarios activos
+  const usersWithRole = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM users WHERE tenant_id = $1 AND role_id = $2 AND is_active = true`,
+    [tenantId, roleId]
+  );
+  if ((usersWithRole.rows[0]?.c || 0) > 0) return res.status(400).json({ error: 'Hay usuarios activos con este rol' });
+
+  await pool.query('DELETE FROM roles WHERE id = $1 AND tenant_id = $2', [roleId, tenantId]);
+  return res.json({ ok: true });
+});
+
+app.get('/api/tenants/:tenantId/users', requireAuth, requireTenantAccess, requirePermission('users.view'), async (req, res) => {
+  const { tenantId } = req.params;
+  const r = await pool.query(
+    `SELECT id, tenant_id, email, name, role_id, is_active, last_login, created_at
+     FROM users WHERE tenant_id = $1
+     ORDER BY created_at DESC`,
+    [tenantId]
+  );
+  return res.json(r.rows);
+});
+
+app.post('/api/tenants/:tenantId/users', requireAuth, requireTenantAccess, requirePermission('users.manage'), async (req, res) => {
+  const { tenantId } = req.params;
+  const { email, password, name, roleId } = req.body || {};
+  if (!email || !password || !name || !roleId) return res.status(400).json({ error: 'email/password/name/roleId requeridos' });
+
+  const passwordHash = await hashPassword(password);
+  const created = await pool.query(
+    `INSERT INTO users (tenant_id, email, password_hash, name, role_id, is_active)
+     VALUES ($1, $2, $3, $4, $5, TRUE)
+     RETURNING id, tenant_id, email, name, role_id, is_active, created_at`,
+    [tenantId, email, passwordHash, name, roleId]
+  );
+  return res.status(201).json(created.rows[0]);
+});
+
+app.put('/api/tenants/:tenantId/users/:userId', requireAuth, requireTenantAccess, requirePermission('users.manage'), async (req, res) => {
+  const { tenantId, userId } = req.params;
+  const { name, roleId, isActive } = req.body || {};
+
+  const r = await pool.query(
+    `UPDATE users SET
+       name = COALESCE($3, name),
+       role_id = COALESCE($4, role_id),
+       is_active = COALESCE($5, is_active)
+     WHERE id = $1 AND tenant_id = $2
+     RETURNING id, tenant_id, email, name, role_id, is_active, last_login, created_at`,
+    [userId, tenantId, name || null, roleId || null, typeof isActive === 'boolean' ? isActive : null]
+  );
+  if (!r.rows[0]) return res.status(404).json({ error: 'User not found' });
+  return res.json(r.rows[0]);
+});
+
+app.delete('/api/tenants/:tenantId/users/:userId', requireAuth, requireTenantAccess, requirePermission('users.manage'), async (req, res) => {
+  const { tenantId, userId } = req.params;
+
+  // Evitar dar de baja al último admin activo
+  const adminRole = await pool.query(
+    `SELECT id FROM roles WHERE tenant_id = $1 AND name = 'Administrador' LIMIT 1`,
+    [tenantId]
+  );
+  const adminRoleId = adminRole.rows[0]?.id;
+
+  if (adminRoleId) {
+    const target = await pool.query(
+      `SELECT role_id, is_active FROM users WHERE id = $1 AND tenant_id = $2`,
+      [userId, tenantId]
+    );
+    if (target.rows[0]?.role_id === adminRoleId && target.rows[0]?.is_active) {
+      const adminCount = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM users WHERE tenant_id = $1 AND role_id = $2 AND is_active = true`,
+        [tenantId, adminRoleId]
+      );
+      if ((adminCount.rows[0]?.c || 0) <= 1) {
+        return res.status(400).json({ error: 'No puedes desactivar al único Administrador del tenant' });
+      }
+    }
+  }
+
+  await pool.query(
+    `UPDATE users SET is_active = false WHERE id = $1 AND tenant_id = $2`,
+    [userId, tenantId]
+  );
+  return res.json({ ok: true });
+});
 
 const ensureTenantExists = async (tenantId) => {
   // En este repo el frontend puede ser demo/localStorage; garantizamos que exista el tenant
@@ -221,6 +723,17 @@ const VALID_TABLES = ['tenants', 'users', 'roles', 'products', 'categories', 'ta
 
 // Helper: Sanitize table name
 const isValidTable = (table) => VALID_TABLES.includes(table);
+
+const TENANT_SCOPED_TABLES = new Set([
+  'users', 'roles', 'products', 'categories', 'tables', 'orders', 'shifts', 'audit_logs', 'billing_history'
+]);
+
+const resolveTenantIdForRequest = (req) => {
+  if (req.auth?.scope === 'tenant') return req.auth.tenantId;
+  // global admin puede operar un tenant específico explicitándolo
+  const t = req.query?.tenantId || req.body?.tenantId || req.body?.tenant_id;
+  return typeof t === 'string' ? t : undefined;
+};
 
 
 // --- MERCADO PAGO ROUTES ---
@@ -388,13 +901,37 @@ app.get('/api/:resource', async (req, res) => {
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
 
+    if (ENFORCE_AUTH) {
+      if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+    }
+
     let query = `SELECT * FROM ${resource}`;
     const params = [];
 
-    // Multi-tenancy filter
-    if (tenantId && resource !== 'tenants') {
+    const resolvedTenantId = ENFORCE_AUTH ? resolveTenantIdForRequest(req) : (typeof tenantId === 'string' ? tenantId : undefined);
+
+    if (resource === 'tenants') {
+      if (ENFORCE_AUTH) {
+        if (req.auth?.scope === 'global') {
+          // global: puede listar todos
+        } else {
+          // tenant user: solo su tenant
+          query += ` WHERE id = $1`;
+          params.push(req.auth.tenantId);
+        }
+      }
+    } else if (resource === 'order_items') {
+      // order_items no tiene tenant_id: filtrar vía orders.tenant_id
+      if (!resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
+      query = `SELECT oi.*
+               FROM order_items oi
+               JOIN orders o ON oi.order_id = o.id
+               WHERE o.tenant_id = $1`;
+      params.push(resolvedTenantId);
+    } else if (TENANT_SCOPED_TABLES.has(resource)) {
+      if (!resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
       query += ` WHERE tenant_id = $1`;
-      params.push(tenantId);
+      params.push(resolvedTenantId);
     }
 
     // Default sorting
@@ -418,6 +955,24 @@ app.post('/api/:resource', async (req, res) => {
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
 
+    if (ENFORCE_AUTH) {
+      if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+      if (resource === 'tenants' && req.auth.scope !== 'global') {
+        return res.status(403).json({ error: 'Solo admin global puede crear tenants' });
+      }
+    }
+
+    // Forzar tenant_id en tablas tenant-scoped
+    if (TENANT_SCOPED_TABLES.has(resource)) {
+      const resolvedTenantId = resolveTenantIdForRequest(req);
+      if (!resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
+      data.tenant_id = resolvedTenantId;
+      // No permitir crear roles/users fuera del ámbito usando la ruta genérica en modo enforce
+      if (ENFORCE_AUTH && (resource === 'users' || resource === 'roles')) {
+        return res.status(400).json({ error: 'Usa /api/tenants/:tenantId/users o /api/tenants/:tenantId/roles' });
+      }
+    }
+
     const keys = Object.keys(data);
     const values = Object.values(data);
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
@@ -440,12 +995,34 @@ app.put('/api/:resource/:id', async (req, res) => {
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
 
-    const updates = Object.keys(data).map((key, i) => `${key} = $${i + 2}`).join(', ');
+    if (ENFORCE_AUTH) {
+      if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+      if (resource === 'tenants' && req.auth.scope !== 'global') {
+        return res.status(403).json({ error: 'Solo admin global puede editar tenants' });
+      }
+      if (resource === 'users' || resource === 'roles') {
+        return res.status(400).json({ error: 'Usa /api/tenants/:tenantId/users o /api/tenants/:tenantId/roles' });
+      }
+    }
+
+    const keys = Object.keys(data);
+    if (keys.length === 0) return res.status(400).json({ error: 'No hay campos para actualizar' });
+
+    const tenantScoped = TENANT_SCOPED_TABLES.has(resource);
+    const resolvedTenantId = tenantScoped ? resolveTenantIdForRequest(req) : undefined;
+    if (tenantScoped && !resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
+
+    const updates = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
     const values = [id, ...Object.values(data)];
 
-    const query = `UPDATE ${resource} SET ${updates} WHERE id = $1 RETURNING *`;
+    const query = tenantScoped
+      ? `UPDATE ${resource} SET ${updates} WHERE id = $1 AND tenant_id = $${values.length + 1} RETURNING *`
+      : `UPDATE ${resource} SET ${updates} WHERE id = $1 RETURNING *`;
+
+    if (tenantScoped) values.push(resolvedTenantId);
     const result = await pool.query(query, values);
 
+    if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -460,6 +1037,16 @@ app.delete('/api/:resource/:id', async (req, res) => {
 
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
+
+    if (ENFORCE_AUTH) {
+      if (!req.auth) return res.status(401).json({ error: 'Auth requerida' });
+      if (resource === 'tenants' && req.auth.scope !== 'global') {
+        return res.status(403).json({ error: 'Solo admin global puede eliminar tenants' });
+      }
+      if (resource === 'users' || resource === 'roles') {
+        return res.status(400).json({ error: 'Usa /api/tenants/:tenantId/users o /api/tenants/:tenantId/roles' });
+      }
+    }
 
     // --- BUSINESS VALIDATIONS ---
 
@@ -553,6 +1140,13 @@ app.delete('/api/:resource/:id', async (req, res) => {
     }
 
     // Default: Hard delete
+    if (TENANT_SCOPED_TABLES.has(resource)) {
+      const resolvedTenantId = ENFORCE_AUTH ? resolveTenantIdForRequest(req) : (typeof tenantId === 'string' ? tenantId : undefined);
+      if (!resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
+      await pool.query(`DELETE FROM ${resource} WHERE id = $1 AND tenant_id = $2`, [id, resolvedTenantId]);
+      return res.json({ success: true });
+    }
+
     await pool.query(`DELETE FROM ${resource} WHERE id = $1`, [id]);
     res.json({ success: true });
   } catch (err) {
@@ -585,10 +1179,14 @@ app.post('/api/license/verify', async (req, res) => {
 });
 
 // Obtener un tenant por ID (para refrescar estado en frontend)
-app.get('/api/tenants/:id', async (req, res) => {
+app.get('/api/tenants/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   try {
     if (!isUuid(id)) return res.status(400).json({ error: 'tenantId inválido (UUID requerido)' });
+
+    if (req.auth.scope !== 'global' && req.auth.tenantId !== id) {
+      return res.status(403).json({ error: 'Acceso denegado al tenant' });
+    }
 
     const result = await pool.query(
       `SELECT id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at, settings

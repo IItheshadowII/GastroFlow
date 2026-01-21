@@ -192,6 +192,21 @@ DATABASE_URL=postgresql://user:pass@host:5432/gastroflow
 JWT_SECRET=super_secret_key_production
 MP_ACCESS_TOKEN=APP_USR-xxxxxx-xxxxxx (Mercado Pago Production Token)
 GEMINI_API_KEY=AIzaSy... (Google AI Key)
+
+### SMTP (notificaciones + recuperación de contraseña)
+
+Configurar en EasyPanel (NO commitear secretos):
+
+- `SMTP_HOST` (ej: `smtp.gmail.com`)
+- `SMTP_PORT` (ej: `587`)
+- `SMTP_USER` (ej: tu cuenta Gmail)
+- `SMTP_PASS` (Gmail App Password)
+- `SMTP_FROM` (ej: `GastroFlow <tu-mail@gmail.com>`)
+- `PUBLIC_BASE_URL` (ej: `https://gastroflow.accesoit.com.ar`)
+
+Notas:
+- Para Gmail se recomienda usar *App Password* y tener 2FA habilitado.
+- `PUBLIC_BASE_URL` se usa para armar el link de reseteo (`/app/reset-password` y `/admin/reset-password`).
 ```
 
 ## 5. Resumen de pasos

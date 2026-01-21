@@ -7,6 +7,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 
 dotenv.config();
 
@@ -21,6 +23,113 @@ const GLOBAL_ADMIN_BOOTSTRAP_TOKEN = process.env.GLOBAL_ADMIN_BOOTSTRAP_TOKEN ||
 const ENFORCE_AUTH = process.env.MULTI_TENANT_ENFORCE_AUTH
   ? process.env.MULTI_TENANT_ENFORCE_AUTH === 'true'
   : process.env.NODE_ENV === 'production';
+
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || '';
+
+const SMTP_HOST = process.env.SMTP_HOST || '';
+const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || '';
+
+let mailTransporter = null;
+const getMailer = () => {
+  if (mailTransporter) return mailTransporter;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  mailTransporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: false,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    requireTLS: true,
+  });
+  return mailTransporter;
+};
+
+const sendEmail = async ({ to, subject, html, text }) => {
+  const transporter = getMailer();
+  if (!transporter) {
+    throw new Error('SMTP no configurado (SMTP_HOST/SMTP_USER/SMTP_PASS)');
+  }
+  await transporter.sendMail({
+    from: SMTP_FROM,
+    to,
+    subject,
+    html,
+    text,
+  });
+};
+
+const getBaseUrlForLinks = (req) => {
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL.replace(/\/$/, '');
+  const origin = req.get('origin');
+  if (origin) return String(origin).replace(/\/$/, '');
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+  const host = req.get('x-forwarded-host') || req.get('host');
+  return host ? `${proto}://${host}` : '';
+};
+
+const slugify = (value) => {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 80);
+};
+
+const sha256Hex = (value) => crypto.createHash('sha256').update(value).digest('hex');
+
+const createPasswordReset = async ({ scope, email, tenantUserId, tenantId, adminId, req }) => {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = sha256Hex(rawToken);
+  const ttlMinutes = process.env.RESET_TOKEN_TTL_MINUTES ? Number(process.env.RESET_TOKEN_TTL_MINUTES) : 60;
+  const expiresAt = new Date(Date.now() + Math.max(5, ttlMinutes) * 60 * 1000);
+
+  await pool.query(
+    `INSERT INTO password_resets (scope, email, tenant_id, user_id, admin_id, token_hash, expires_at, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+    [scope, email, tenantId || null, tenantUserId || null, adminId || null, tokenHash, expiresAt]
+  );
+
+  const baseUrl = getBaseUrlForLinks(req);
+  const path = scope === 'global' ? '/admin/reset-password' : '/app/reset-password';
+  const resetUrl = baseUrl ? `${baseUrl}${path}?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}` : '';
+  return { rawToken, resetUrl, expiresAt };
+};
+
+const consumePasswordReset = async ({ scope, email, token, newPassword }) => {
+  const tokenHash = sha256Hex(token);
+
+  const r = await pool.query(
+    `SELECT id, scope, email, tenant_id, user_id, admin_id, expires_at, used_at
+     FROM password_resets
+     WHERE token_hash = $1 AND scope = $2 AND email = $3
+     LIMIT 1`,
+    [tokenHash, scope, email]
+  );
+  const row = r.rows[0];
+  if (!row) return { ok: false, error: 'Token inválido' };
+  if (row.used_at) return { ok: false, error: 'Token ya utilizado' };
+  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return { ok: false, error: 'Token expirado' };
+
+  const passwordHash = await hashPassword(newPassword);
+  if (scope === 'global') {
+    if (!row.admin_id) return { ok: false, error: 'Token inválido' };
+    await pool.query('UPDATE global_admins SET password_hash = $1 WHERE id = $2', [passwordHash, row.admin_id]);
+  } else {
+    if (!row.user_id || !row.tenant_id) return { ok: false, error: 'Token inválido' };
+    await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3',
+      [passwordHash, row.user_id, row.tenant_id]
+    );
+  }
+
+  await pool.query('UPDATE password_resets SET used_at = NOW() WHERE id = $1', [row.id]);
+  return { ok: true };
+};
 
 // Middleware
 app.use(cors());
@@ -190,6 +299,25 @@ const ensureSchema = async () => {
         ADD COLUMN IF NOT EXISTS mercadopago_preapproval_id VARCHAR(255),
         ADD COLUMN IF NOT EXISTS next_billing_date TIMESTAMP,
         ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
+    `);
+
+    // Password reset tokens
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        scope VARCHAR(10) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        tenant_id UUID,
+        user_id UUID,
+        admin_id UUID,
+        token_hash VARCHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+      CREATE INDEX IF NOT EXISTS idx_password_resets_created ON password_resets(created_at DESC);
     `);
 
     // Billing history: tabla + columnas requeridas
@@ -382,6 +510,58 @@ app.post('/api/admin/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/admin/auth/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  try {
+    if (!email) return res.status(400).json({ error: 'email requerido' });
+
+    const r = await pool.query(
+      `SELECT id, email, is_active, name FROM global_admins WHERE email = $1 LIMIT 1`,
+      [email]
+    );
+    const admin = r.rows[0];
+
+    // Responder siempre OK para evitar enumeración de usuarios
+    if (!admin || !admin.is_active) {
+      return res.json({ ok: true, message: 'Si el email existe, enviaremos un link de recuperación.' });
+    }
+
+    const { resetUrl, expiresAt } = await createPasswordReset({
+      scope: 'global',
+      email: admin.email,
+      adminId: admin.id,
+      req,
+    });
+
+    const safeUrl = resetUrl || '';
+    await sendEmail({
+      to: admin.email,
+      subject: 'GastroFlow - Recuperación de contraseña (Admin)',
+      text: `Hola ${admin.name || ''}\n\nUsá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):\n${safeUrl}\n\nSi no lo solicitaste, ignorá este correo.`,
+      html: `<p>Hola ${admin.name || ''}</p><p>Usá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>Si no lo solicitaste, ignorá este correo.</p>`,
+    });
+
+    return res.json({ ok: true, message: 'Si el email existe, enviaremos un link de recuperación.' });
+  } catch (error) {
+    console.error('admin forgot-password error:', error);
+    return res.status(500).json({ error: 'No se pudo enviar el email de recuperación' });
+  }
+});
+
+app.post('/api/admin/auth/reset-password', async (req, res) => {
+  const { email, token, newPassword } = req.body || {};
+  try {
+    if (!email || !token || !newPassword) return res.status(400).json({ error: 'email/token/newPassword requeridos' });
+    if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const result = await consumePasswordReset({ scope: 'global', email, token, newPassword });
+    if (!result.ok) return res.status(400).json({ error: result.error || 'Token inválido' });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('admin reset-password error:', error);
+    return res.status(500).json({ error: 'No se pudo resetear la contraseña' });
+  }
+});
+
 app.get('/api/admin/me', requireGlobalAdmin, async (req, res) => {
   try {
     const r = await pool.query('SELECT id, email, name FROM global_admins WHERE id = $1', [req.auth.sub]);
@@ -503,6 +683,199 @@ app.post('/api/app/auth/login', async (req, res) => {
   } catch (error) {
     console.error('app login error:', error);
     return res.status(500).json({ error: 'login failed' });
+  }
+});
+
+app.post('/api/app/auth/register', async (req, res) => {
+  const { tenantName, tenantSlug, name, email, password } = req.body || {};
+  try {
+    if (!tenantName || !name || !email || !password) {
+      return res.status(400).json({ error: 'tenantName/name/email/password requeridos' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    }
+
+    // Evitar colisiones con admin global
+    const ga = await pool.query('SELECT 1 FROM global_admins WHERE email = $1 LIMIT 1', [email]);
+    if (ga.rows.length > 0) return res.status(409).json({ error: 'El email ya está reservado para el owner' });
+
+    let slug = tenantSlug ? slugify(tenantSlug) : slugify(tenantName);
+    if (!slug) slug = `tenant-${crypto.randomBytes(4).toString('hex')}`;
+
+    // Asegurar unicidad de slug
+    const slugCheck = await pool.query('SELECT 1 FROM tenants WHERE slug = $1 LIMIT 1', [slug]);
+    if (slugCheck.rows.length > 0) {
+      slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+    }
+
+    const createdTenant = await pool.query(
+      `INSERT INTO tenants (name, slug, plan, subscription_status)
+       VALUES ($1, $2, 'BASIC', 'TRIAL')
+       RETURNING id, name, slug, plan, subscription_status, mercadopago_preapproval_id, next_billing_date, created_at`,
+      [tenantName, slug]
+    );
+    const tenant = createdTenant.rows[0];
+
+    await seedDefaultRolesForTenant(tenant.id);
+    const adminRoleId = await getTenantAdminRoleId(tenant.id);
+    const permsRes = await pool.query(
+      `SELECT COALESCE(permissions, '{}'::text[]) AS permissions
+       FROM roles WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+      [adminRoleId, tenant.id]
+    );
+    const rolePermissions = permsRes.rows[0]?.permissions || DEFAULT_PERMISSIONS;
+
+    const passwordHash = await hashPassword(password);
+    const createdUser = await pool.query(
+      `INSERT INTO users (tenant_id, email, password_hash, name, role_id, is_active)
+       VALUES ($1, $2, $3, $4, $5, TRUE)
+       RETURNING id, tenant_id, email, name, role_id`,
+      [tenant.id, email, passwordHash, name, adminRoleId]
+    );
+    const user = createdUser.rows[0];
+
+    const token = signToken({
+      scope: 'tenant',
+      sub: user.id,
+      tenantId: tenant.id,
+      roleId: user.role_id,
+      permissions: rolePermissions,
+      email: user.email,
+    });
+
+    // Email opcional de bienvenida
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Bienvenido a GastroFlow',
+        text: `Hola ${name}!\n\nTu cuenta fue creada para la empresa: ${tenantName}.\n\nIngresá a tu panel para completar la suscripción.`,
+        html: `<p>Hola ${name}!</p><p>Tu cuenta fue creada para la empresa: <b>${tenantName}</b>.</p><p>Ingresá a tu panel para completar la suscripción.</p>`,
+      });
+    } catch (e) {
+      console.warn('No se pudo enviar email de bienvenida (continúa):', e?.message || e);
+    }
+
+    return res.status(201).json({
+      ok: true,
+      token,
+      scope: 'tenant',
+      user: { id: user.id, tenantId: tenant.id, email: user.email, name: user.name, roleId: user.role_id, permissions: rolePermissions },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug || '',
+        plan: tenant.plan,
+        subscriptionStatus: tenant.subscription_status,
+        mercadoPagoPreapprovalId: tenant.mercadopago_preapproval_id || undefined,
+        nextBillingDate: tenant.next_billing_date ? new Date(tenant.next_billing_date).toISOString() : undefined,
+        createdAt: tenant.created_at ? new Date(tenant.created_at).toISOString() : new Date().toISOString(),
+      }
+    });
+  } catch (error) {
+    console.error('app register error:', error);
+    return res.status(500).json({ error: 'No se pudo registrar' });
+  }
+});
+
+app.post('/api/app/auth/forgot-password', async (req, res) => {
+  const { email, tenantId } = req.body || {};
+  try {
+    if (!email) return res.status(400).json({ error: 'email requerido' });
+
+    if (tenantId) {
+      if (!isUuid(tenantId)) return res.status(400).json({ error: 'tenantId inválido (UUID requerido)' });
+      const r = await pool.query(
+        `SELECT u.id, u.tenant_id, u.email, u.name, u.is_active
+         FROM users u
+         WHERE u.email = $1 AND u.tenant_id = $2
+         LIMIT 1`,
+        [email, tenantId]
+      );
+      const user = r.rows[0];
+      if (!user || !user.is_active) {
+        return res.json({ ok: true, message: 'Si el email existe, enviaremos un link de recuperación.' });
+      }
+
+      const { resetUrl, expiresAt } = await createPasswordReset({
+        scope: 'tenant',
+        email: user.email,
+        tenantUserId: user.id,
+        tenantId: user.tenant_id,
+        req,
+      });
+
+      const safeUrl = resetUrl || '';
+      await sendEmail({
+        to: user.email,
+        subject: 'GastroFlow - Recuperación de contraseña',
+        text: `Hola ${user.name || ''}\n\nUsá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):\n${safeUrl}\n\nSi no lo solicitaste, ignorá este correo.`,
+        html: `<p>Hola ${user.name || ''}</p><p>Usá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>Si no lo solicitaste, ignorá este correo.</p>`,
+      });
+
+      return res.json({ ok: true, message: 'Si el email existe, enviaremos un link de recuperación.' });
+    }
+
+    const candidatesRes = await pool.query(
+      `SELECT u.id, u.tenant_id, u.email, u.name, u.is_active, t.name AS tenant_name, t.slug AS tenant_slug
+       FROM users u
+       JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.email = $1`,
+      [email]
+    );
+
+    const candidates = (candidatesRes.rows || []).filter((u) => u && u.is_active);
+
+    // Responder siempre OK para evitar enumeración
+    if (candidates.length === 0) {
+      return res.json({ ok: true, message: 'Si el email existe, enviaremos un link de recuperación.' });
+    }
+
+    if (candidates.length > 1) {
+      return res.status(409).json({
+        ok: false,
+        error: 'El email existe en múltiples empresas. Seleccioná una para continuar.',
+        code: 'MULTI_TENANT_EMAIL',
+        tenants: candidates.map((m) => ({ id: m.tenant_id, name: m.tenant_name, slug: m.tenant_slug || '' })),
+      });
+    }
+
+    const user = candidates[0];
+
+    const { resetUrl, expiresAt } = await createPasswordReset({
+      scope: 'tenant',
+      email: user.email,
+      tenantUserId: user.id,
+      tenantId: user.tenant_id,
+      req,
+    });
+
+    const safeUrl = resetUrl || '';
+    await sendEmail({
+      to: user.email,
+      subject: 'GastroFlow - Recuperación de contraseña',
+      text: `Hola ${user.name || ''}\n\nUsá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):\n${safeUrl}\n\nSi no lo solicitaste, ignorá este correo.`,
+      html: `<p>Hola ${user.name || ''}</p><p>Usá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>Si no lo solicitaste, ignorá este correo.</p>`,
+    });
+
+    return res.json({ ok: true, message: 'Si el email existe, enviaremos un link de recuperación.' });
+  } catch (error) {
+    console.error('app forgot-password error:', error);
+    return res.status(500).json({ error: 'No se pudo enviar el email de recuperación' });
+  }
+});
+
+app.post('/api/app/auth/reset-password', async (req, res) => {
+  const { email, token, newPassword } = req.body || {};
+  try {
+    if (!email || !token || !newPassword) return res.status(400).json({ error: 'email/token/newPassword requeridos' });
+    if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const result = await consumePasswordReset({ scope: 'tenant', email, token, newPassword });
+    if (!result.ok) return res.status(400).json({ error: result.error || 'Token inválido' });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('app reset-password error:', error);
+    return res.status(500).json({ error: 'No se pudo resetear la contraseña' });
   }
 });
 

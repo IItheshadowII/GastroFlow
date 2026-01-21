@@ -15,6 +15,14 @@ import { LogIn, Key, Mail, Store, AlertTriangle, ShieldX } from 'lucide-react';
 
 type TenantOption = { id: string; name: string; slug?: string };
 
+const getQueryParams = () => {
+  try {
+    return new URLSearchParams(window.location.search || '');
+  } catch {
+    return new URLSearchParams();
+  }
+};
+
 const getPathArea = (): 'admin' | 'app' => {
   const p = window.location.pathname || '/';
   if (p.startsWith('/admin')) return 'admin';
@@ -208,9 +216,25 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
           </form>
 
           <div className="mt-8 pt-8 border-t border-slate-800 text-center">
-            <button className="text-slate-500 hover:text-blue-400 text-sm font-medium transition-colors">
-              ¿Olvidaste tu contraseña?
-            </button>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = '/app/forgot-password'; }}
+                  className="text-slate-500 hover:text-blue-400 text-sm font-medium transition-colors"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+                <div className="text-sm text-slate-600">
+                  ¿No tenés cuenta?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { window.location.href = '/app/register'; }}
+                    className="text-blue-400 hover:text-blue-300 font-bold transition-colors"
+                  >
+                    Registrate
+                  </button>
+                </div>
+              </div>
           </div>
         </div>
 
@@ -312,6 +336,678 @@ const AdminLoginPage = ({ onLogin }: { onLogin: (u: { id: string; email: string;
               )}
             </button>
           </form>
+
+          <div className="mt-8 pt-8 border-t border-slate-800 text-center">
+            <button
+              type="button"
+              onClick={() => { window.location.href = '/admin/forgot-password'; }}
+              className="text-slate-500 hover:text-purple-400 text-sm font-medium transition-colors"
+            >
+              ¿Olvidaste tu contraseña?
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AppForgotPasswordPage = ({ isCloud }: { isCloud: boolean }) => {
+  const [email, setEmail] = useState('');
+  const [tenantOptions, setTenantOptions] = useState<TenantOption[] | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      if (!isCloud) {
+        setSent(true);
+        return;
+      }
+      const res = await fetch('/api/app/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          ...(selectedTenantId ? { tenantId: selectedTenantId } : {})
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && Array.isArray(data?.tenants)) {
+        setTenantOptions(data.tenants);
+        setSelectedTenantId(data.tenants[0]?.id || '');
+        setError(null);
+        return;
+      }
+      if (!res.ok || !data?.ok) {
+        setError(data?.error || 'No se pudo enviar el email');
+        return;
+      }
+      setSent(true);
+    } catch (err: any) {
+      setError(err?.message || 'Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950">
+      <div className="w-full max-w-md">
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl">
+          <h1 className="text-2xl font-black text-white italic mb-2">Recuperar contraseña</h1>
+          <p className="text-slate-400 text-sm mb-6">Te enviaremos un link si el email existe.</p>
+
+          {sent ? (
+            <div className="space-y-6">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-2xl p-4 text-sm font-bold">
+                Listo. Si el email existe, vas a recibir un link de recuperación.
+              </div>
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/app'; }}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-2xl transition-all"
+              >
+                Volver al login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {isCloud && tenantOptions && tenantOptions.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Empresa</label>
+                  <div className="relative">
+                    <Store className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                    <select
+                      value={selectedTenantId}
+                      onChange={(e) => setSelectedTenantId(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                    >
+                      {tenantOptions.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}{t.slug ? ` (${t.slug})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">Este email está asociado a más de una empresa.</p>
+                </div>
+              )}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                    placeholder="tu@email.com"
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-300 rounded-2xl p-4 text-sm font-bold">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold py-4 rounded-2xl transition-all"
+              >
+                {loading ? 'Enviando...' : 'Enviar link'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/app'; }}
+                className="w-full text-slate-500 hover:text-slate-200 text-sm font-medium transition-colors"
+              >
+                Volver
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AppResetPasswordPage = ({ isCloud }: { isCloud: boolean }) => {
+  const q = getQueryParams();
+  const initialEmail = q.get('email') || '';
+  const token = q.get('token') || '';
+  const [email, setEmail] = useState(initialEmail);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!token) {
+      setError('Token faltante');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (newPassword !== confirm) {
+      setError('Las contraseñas no coinciden');
+      return;
+    }
+    setLoading(true);
+    try {
+      if (!isCloud) {
+        setOk(true);
+        return;
+      }
+      const res = await fetch('/api/app/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, token, newPassword })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setError(data?.error || 'No se pudo resetear');
+        return;
+      }
+      setOk(true);
+    } catch (err: any) {
+      setError(err?.message || 'Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950">
+      <div className="w-full max-w-md">
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl">
+          <h1 className="text-2xl font-black text-white italic mb-2">Nueva contraseña</h1>
+          <p className="text-slate-400 text-sm mb-6">Definí una nueva contraseña para tu cuenta.</p>
+
+          {ok ? (
+            <div className="space-y-6">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-2xl p-4 text-sm font-bold">
+                Contraseña actualizada. Ya podés iniciar sesión.
+              </div>
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/app'; }}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-2xl transition-all"
+              >
+                Ir al login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Contraseña nueva</label>
+                <div className="relative">
+                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                    placeholder="mínimo 8 caracteres"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Confirmar contraseña</label>
+                <div className="relative">
+                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-300 rounded-2xl p-4 text-sm font-bold">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold py-4 rounded-2xl transition-all"
+              >
+                {loading ? 'Actualizando...' : 'Cambiar contraseña'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/app'; }}
+                className="w-full text-slate-500 hover:text-slate-200 text-sm font-medium transition-colors"
+              >
+                Volver
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AppRegisterPage = ({ isCloud, onLogin }: { isCloud: boolean; onLogin: (u: User) => void }) => {
+  const [tenantName, setTenantName] = useState('');
+  const [tenantSlug, setTenantSlug] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      if (!isCloud) {
+        setError('El registro automático está disponible solo en modo CLOUD.');
+        return;
+      }
+      const res = await fetch('/api/app/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantName, tenantSlug: tenantSlug || undefined, name, email, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok || !data?.token || !data?.user) {
+        setError(data?.error || 'No se pudo registrar');
+        return;
+      }
+      localStorage.setItem('gastroflow_token', data.token);
+      localStorage.setItem('gastroflow_last_tenant_id', data.user.tenantId);
+
+      const u: User = {
+        id: data.user.id,
+        tenantId: data.user.tenantId,
+        email: data.user.email,
+        name: data.user.name,
+        roleId: data.user.roleId,
+        isActive: true,
+        permissions: Array.isArray(data.user.permissions) ? data.user.permissions : []
+      };
+      localStorage.setItem('gastroflow_current_user', JSON.stringify(u));
+
+      window.history.replaceState({}, document.title, '/app');
+      onLogin(u);
+    } catch (err: any) {
+      setError(err?.message || 'Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950">
+      <div className="w-full max-w-md">
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl">
+          <h1 className="text-2xl font-black text-white italic mb-2">Crear cuenta</h1>
+          <p className="text-slate-400 text-sm mb-6">Creá tu empresa y el usuario administrador.</p>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Empresa</label>
+              <div className="relative">
+                <Store className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                <input
+                  value={tenantName}
+                  onChange={(e) => setTenantName(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                  placeholder="Mi Restaurant"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Slug (opcional)</label>
+              <input
+                value={tenantSlug}
+                onChange={(e) => setTenantSlug(e.target.value)}
+                className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 px-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                placeholder="mi-restaurant"
+              />
+              <p className="text-xs text-slate-500 font-medium">Se usa para identificar tu empresa (si está libre).</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Tu nombre</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 px-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                placeholder="Juan Pérez"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                  placeholder="tu@email.com"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Contraseña</label>
+              <div className="relative">
+                <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                  placeholder="mínimo 8 caracteres"
+                  required
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-300 rounded-2xl p-4 text-sm font-bold">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold py-4 rounded-2xl transition-all"
+            >
+              {loading ? 'Creando...' : 'Crear cuenta'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { window.location.href = '/app'; }}
+              className="w-full text-slate-500 hover:text-slate-200 text-sm font-medium transition-colors"
+            >
+              Ya tengo cuenta
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AdminForgotPasswordPage = () => {
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setError(data?.error || 'No se pudo enviar el email');
+        return;
+      }
+      setSent(true);
+    } catch (err: any) {
+      setError(err?.message || 'Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-purple-900/20 via-slate-950 to-slate-950">
+      <div className="w-full max-w-md">
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl">
+          <h1 className="text-2xl font-black text-white italic mb-2">Recuperar contraseña (Admin)</h1>
+          <p className="text-slate-400 text-sm mb-6">Te enviaremos un link si el email existe.</p>
+
+          {sent ? (
+            <div className="space-y-6">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-2xl p-4 text-sm font-bold">
+                Listo. Si el email existe, vas a recibir un link de recuperación.
+              </div>
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/admin'; }}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-2xl transition-all"
+              >
+                Volver
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500/50 outline-none transition-all"
+                    placeholder="owner@tuempresa.com"
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-300 rounded-2xl p-4 text-sm font-bold">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-4 rounded-2xl transition-all"
+              >
+                {loading ? 'Enviando...' : 'Enviar link'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/admin'; }}
+                className="w-full text-slate-500 hover:text-slate-200 text-sm font-medium transition-colors"
+              >
+                Volver
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AdminResetPasswordPage = () => {
+  const q = getQueryParams();
+  const initialEmail = q.get('email') || '';
+  const token = q.get('token') || '';
+  const [email, setEmail] = useState(initialEmail);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!token) {
+      setError('Token faltante');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (newPassword !== confirm) {
+      setError('Las contraseñas no coinciden');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, token, newPassword })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setError(data?.error || 'No se pudo resetear');
+        return;
+      }
+      setOk(true);
+    } catch (err: any) {
+      setError(err?.message || 'Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-purple-900/20 via-slate-950 to-slate-950">
+      <div className="w-full max-w-md">
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl">
+          <h1 className="text-2xl font-black text-white italic mb-2">Nueva contraseña (Admin)</h1>
+          <p className="text-slate-400 text-sm mb-6">Definí una nueva contraseña para tu cuenta.</p>
+
+          {ok ? (
+            <div className="space-y-6">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-2xl p-4 text-sm font-bold">
+                Contraseña actualizada. Ya podés iniciar sesión.
+              </div>
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/admin'; }}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-2xl transition-all"
+              >
+                Ir al login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500/50 outline-none transition-all"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Contraseña nueva</label>
+                <div className="relative">
+                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500/50 outline-none transition-all"
+                    placeholder="mínimo 8 caracteres"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest ml-1">Confirmar contraseña</label>
+                <div className="relative">
+                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500/50 outline-none transition-all"
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-300 rounded-2xl p-4 text-sm font-bold">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-4 rounded-2xl transition-all"
+              >
+                {loading ? 'Actualizando...' : 'Cambiar contraseña'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/admin'; }}
+                className="w-full text-slate-500 hover:text-slate-200 text-sm font-medium transition-colors"
+              >
+                Volver
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>
@@ -339,6 +1035,13 @@ const App: React.FC = () => {
 
   const isCloud = (import.meta as any).env.VITE_APP_MODE === 'CLOUD' ||
     (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1'));
+
+  const pathname = window.location.pathname || '/';
+  const isAppRegister = pathname.startsWith('/app/register');
+  const isAppForgot = pathname.startsWith('/app/forgot-password');
+  const isAppReset = pathname.startsWith('/app/reset-password');
+  const isAdminForgot = pathname.startsWith('/admin/forgot-password');
+  const isAdminReset = pathname.startsWith('/admin/reset-password');
 
   const fetchTenantFromApi = async (tenantId: string): Promise<Tenant | null> => {
     try {
@@ -467,6 +1170,8 @@ const App: React.FC = () => {
   };
 
   if (area === 'admin') {
+    if (isAdminForgot) return <AdminForgotPasswordPage />;
+    if (isAdminReset) return <AdminResetPasswordPage />;
     if (!adminUser) {
       return <AdminLoginPage onLogin={(u) => setAdminUser(u)} />;
     }
@@ -497,6 +1202,16 @@ const App: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  if (isAppRegister) {
+    return <AppRegisterPage isCloud={isCloud} onLogin={handleLogin} />;
+  }
+  if (isAppForgot) {
+    return <AppForgotPasswordPage isCloud={isCloud} />;
+  }
+  if (isAppReset) {
+    return <AppResetPasswordPage isCloud={isCloud} />;
   }
 
   if (!user || !tenant) {

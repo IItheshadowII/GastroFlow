@@ -56,7 +56,29 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
         }
 
         if (!res.ok || !data?.ok || !data?.token || !data?.user) {
-          setError(data?.error || 'Credenciales inválidas');
+          // If the app-login failed because the account is global/admin, try admin login automatically
+          const errMsg = data?.error || 'Credenciales inválidas';
+          if (typeof errMsg === 'string' && (errMsg.toLowerCase().includes('requiere login de tenant') || errMsg.toLowerCase().includes('deprecated') || errMsg.toLowerCase().includes('global'))) {
+            try {
+              const adminRes = await fetch('/api/admin/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+              });
+              const adminData = await adminRes.json().catch(() => ({}));
+              if (adminRes.ok && adminData?.ok && adminData?.token && adminData?.user) {
+                // store admin token and redirect to admin UI
+                localStorage.setItem('gastroflow_admin_token', adminData.token);
+                localStorage.setItem('gastroflow_admin_user', JSON.stringify(adminData.user));
+                // navigate to admin area to complete admin session
+                window.location.href = '/admin';
+                return;
+              }
+            } catch (e) {
+              console.error('Fallback admin login error:', e);
+            }
+          }
+          setError(errMsg);
           return;
         }
 

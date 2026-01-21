@@ -445,15 +445,34 @@ app.post('/api/app/auth/login', async (req, res) => {
     );
 
     const candidates = (candidatesRes.rows || []).filter((u) => u && u.is_active);
-    if (candidates.length === 0) return res.status(401).json({ error: 'Credenciales inválidas' });
+    if (candidates.length === 0) {
+      console.warn('[AUTH] no candidates for email=', email);
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Diagnostics: log candidate tenants and whether they have a password_hash
+    try {
+      console.info('[AUTH] candidates count=', candidates.length, 'email=', email, 'tenants=', candidates.map(c => ({ tenant_id: c.tenant_id, tenant_name: c.tenant_name || null, has_hash: !!c.password_hash })) );
+    } catch (e) {
+      console.info('[AUTH] candidates diagnostic error', e?.message || e);
+    }
 
     const matches = [];
     for (const u of candidates) {
       // eslint-disable-next-line no-await-in-loop
       const ok = await verifyPassword(password, u.password_hash);
       if (ok) matches.push(u);
+      else {
+        if (!u.password_hash) {
+          console.warn('[AUTH] candidate without password_hash', { email: u.email, tenant_id: u.tenant_id, user_id: u.id });
+        }
+      }
     }
-    if (matches.length === 0) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+    if (matches.length === 0) {
+      console.warn('[AUTH] password did not match any candidate for email=', email, 'candidates=', candidates.map(c => c.tenant_id));
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
 
     if (matches.length > 1) {
       return res.status(409).json({

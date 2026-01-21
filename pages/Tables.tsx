@@ -68,9 +68,10 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     if (isCloud) {
       try {
         const headers = getAuthHeaders();
-        const [tablesRes, productsRes] = await Promise.all([
+        const [tablesRes, productsRes, ordersRes] = await Promise.all([
           fetch('/api/tables', { headers }),
           fetch('/api/products', { headers }),
+          fetch('/api/orders', { headers }),
         ]);
 
         if (tablesRes.ok) {
@@ -84,7 +85,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
                 number: t.number,
                 capacity: t.capacity,
                 zone: t.zone,
-                status: t.status,
+                status: (t.status || 'AVAILABLE').toString().toUpperCase(),
                 isActive: t.is_active !== false,
               }))
           );
@@ -111,6 +112,22 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
                 imageUrl: p.image_url || undefined,
               }))
           );
+        }
+
+        if (ordersRes.ok) {
+          const apiOrders = await ordersRes.json();
+          setOrders((apiOrders as any[]).map(o => ({
+            id: o.id,
+            tenantId: o.tenant_id,
+            tableId: o.table_id,
+            items: o.items || [],
+            status: o.status,
+            total: Number(o.total || 0),
+            paymentMethod: o.payment_method || undefined,
+            openedAt: o.opened_at,
+            closedAt: o.closed_at || undefined,
+            closedBy: o.closed_by || undefined,
+          })));
         }
       } catch (err) {
         console.error('Error cargando mesas/productos desde API:', err);
@@ -324,6 +341,44 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
       setEditingTable(null);
       setLoading(false);
     }, 400);
+  };
+
+  const handleOpenTableFromModal = async () => {
+    if (!editingTable) return;
+    setLoading(true);
+    try {
+      if (isCloud) {
+        const headers = getAuthHeaders();
+        // Crear comanda vacía
+        const payload = {
+          table_id: editingTable.id,
+          status: 'OPEN',
+          items: [],
+          total: 0,
+          opened_at: new Date().toISOString(),
+        };
+        const res = await fetch('/api/orders', { method: 'POST', headers, body: JSON.stringify(payload) });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || 'No se pudo crear la comanda');
+        }
+        // Marcar mesa como ocupada
+        await fetch(`/api/tables/${editingTable.id}`, { method: 'PUT', headers, body: JSON.stringify({ status: 'OCCUPIED' }) });
+        await refreshData();
+        setIsModalOpen(false);
+        setEditingTable(null);
+      } else {
+        db.update<Table>('tables', editingTable.id, tenantId, { status: 'OCCUPIED' });
+        db.createOrder(editingTable.id, tenantId);
+        refreshData();
+        setIsModalOpen(false);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'No se pudo abrir la comanda');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const addItemToActiveOrder = async (product: Product) => {
@@ -738,12 +793,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
              {editingTable && (
                <button 
                 type="button"
-                onClick={() => {
-                  db.update<Table>('tables', editingTable.id, tenantId, { status: 'OCCUPIED' });
-                  db.createOrder(editingTable.id, tenantId);
-                  refreshData();
-                  setIsModalOpen(false);
-                }}
+                onClick={handleOpenTableFromModal}
                 className="w-full sm:mr-auto sm:w-auto px-8 py-4 bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-500/20 rounded-2xl font-black uppercase text-xs tracking-widest transition-all"
               >
                 Abrir Comanda

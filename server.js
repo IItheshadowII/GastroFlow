@@ -30,21 +30,45 @@ import { MercadoPagoConfig, PreApproval } from 'mercadopago';
 const mpClient = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN || '' });
 const preapproval = new PreApproval(mpClient);
 
-// Test DB Connection
-pool.connect((err, client, release) => {
+// Test DB Connection & Ensure Billing Table
+pool.connect(async (err, client, release) => {
   if (err) {
     console.error('Error acquiring client', err.stack);
   } else {
     console.log('✅ Connected to PostgreSQL database');
+
+    // Ensure Billing History Table Exists
+    try {
+      await client.query(`
+            CREATE TABLE IF NOT EXISTS billing_history (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+                amount DECIMAL(10,2) NOT NULL,
+                currency VARCHAR(3) DEFAULT 'ARS',
+                status VARCHAR(50) DEFAULT 'paid',
+                payment_id VARCHAR(255),
+                created_at TIMESTAMP DEFAULT NOW(),
+                description VARCHAR(255),
+                invoice_url VARCHAR(500)
+            );
+            CREATE INDEX IF NOT EXISTS idx_billing_tenant ON billing_history(tenant_id);
+            CREATE INDEX IF NOT EXISTS idx_billing_date ON billing_history(created_at DESC);
+        `);
+      console.log('✅ Billing History table verified');
+    } catch (tableErr) {
+      console.error('Error verifying billing table:', tableErr);
+    }
+
     release();
   }
 });
 
 // --- VALID RESOURCES (Security) ---
-const VALID_TABLES = ['tenants', 'users', 'roles', 'products', 'categories', 'tables', 'orders', 'order_items', 'shifts', 'audit_logs'];
+const VALID_TABLES = ['tenants', 'users', 'roles', 'products', 'categories', 'tables', 'orders', 'order_items', 'shifts', 'audit_logs', 'billing_history'];
 
 // Helper: Sanitize table name
 const isValidTable = (table) => VALID_TABLES.includes(table);
+
 
 // --- MERCADO PAGO ROUTES ---
 
@@ -81,12 +105,38 @@ app.post('/api/webhooks/mercadopago', async (req, res) => {
   const { type, data } = req.body;
   const { id } = data || {};
 
-  console.log('Webhook received:', type, id);
+  console.log(`[Webhook] Received ${type} for ID: ${id}`);
 
   try {
     if (type === 'subscription_preapproval') {
-      // Logic to update tenant status would go here
-      // For now we just log it as we need to fetch the preapproval details
+      // Fetch subscription details from Mercado Pago
+      const subscription = await preapproval.get({ id });
+
+      if (subscription && subscription.status === 'authorized') {
+        const tenantId = subscription.external_reference;
+        const planName = subscription.reason.replace('Suscripción GastroFlow ', ''); // e.g., 'PRO'
+        const planId = planName === 'Básico' ? 'BASIC' : planName; // Map display name to ID if needed, mainly it matches logic
+
+        console.log(`[Webhook] Activating subscription for Tenant: ${tenantId}, Plan: ${planName}`);
+
+        // 1. Update Tenant
+        await pool.query(
+          `UPDATE tenants SET 
+                plan = $1, 
+                subscription_status = 'ACTIVE', 
+                mercadopago_preapproval_id = $2, 
+                next_billing_date = NOW() + INTERVAL '1 month' 
+               WHERE id = $3`,
+          [planName, id, tenantId]
+        );
+
+        // 2. Record Billing History
+        await pool.query(
+          `INSERT INTO billing_history (tenant_id, amount, status, payment_id, description, created_at)
+               VALUES ($1, $2, 'paid', $3, $4, NOW())`,
+          [tenantId, subscription.auto_recurring.transaction_amount, id, subscription.reason]
+        );
+      }
     }
     res.sendStatus(200);
   } catch (error) {
@@ -94,6 +144,7 @@ app.post('/api/webhooks/mercadopago', async (req, res) => {
     res.sendStatus(500);
   }
 });
+
 
 // --- GENERIC API ROUTES (Backend for Frontend) ---
 

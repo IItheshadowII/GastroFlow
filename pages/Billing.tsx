@@ -14,6 +14,18 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
   const [showCheckout, setShowCheckout] = useState<{ planId: PlanTier, name: string, price: number } | null>(null);
   const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'processing' | 'success'>('idle');
   const [reconciliationNotice, setReconciliationNotice] = useState(false);
+  const [billingHistory, setBillingHistory] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetch(`/api/billing_history?tenantId=${tenant.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setBillingHistory(data);
+        }
+      })
+      .catch(err => console.error('Error fetching billing history:', err));
+  }, [tenant.id]);
 
   const handleSubscribeClick = (plan: any) => {
     setShowCheckout({ planId: plan.id, name: plan.name, price: plan.price });
@@ -208,31 +220,44 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50 text-slate-300">
-              <tr className="hover:bg-slate-800/30 transition-colors">
-                <td className="px-8 py-6 font-bold text-slate-400">Hoy</td>
-                <td className="px-8 py-6">
-                  <div className="flex flex-col">
-                    <span className="font-black italic text-slate-100 uppercase tracking-tighter">Suscripción GastroFlow {PLANS[tenant.plan].name}</span>
-                    <span className="text-[10px] text-slate-500 font-bold">Pago mensual vía Mercado Pago</span>
-                  </div>
-                </td>
-                <td className="px-8 py-6 text-center">
-                  <span className="text-xl font-black text-slate-200">${PLANS[tenant.plan].price.toLocaleString()}</span>
-                </td>
-                <td className="px-8 py-6 text-center">
-                  <span className={`px-4 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${tenant.subscriptionStatus === SubscriptionStatus.ACTIVE
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                    : 'bg-red-500/10 text-red-400 border-red-500/20'
-                    }`}>
-                    {tenant.subscriptionStatus === SubscriptionStatus.ACTIVE ? 'Aprobado' : 'Pendiente'}
-                  </span>
-                </td>
-                <td className="px-8 py-6 text-right">
-                  <button className="flex items-center gap-2 ml-auto text-blue-400 hover:text-blue-300 font-black text-[10px] uppercase tracking-widest group transition-all">
-                    Factura PDF <ExternalLink size={12} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                  </button>
-                </td>
-              </tr>
+              {billingHistory.length === 0 ? (
+                <tr className="hover:bg-slate-800/30 transition-colors">
+                  <td className="px-8 py-6 text-center text-slate-500 font-medium" colSpan={5}>
+                    No existen pagos registrados aún.
+                  </td>
+                </tr>
+              ) : (
+                billingHistory.map((item: any, idx: number) => (
+                  <tr key={item.id || idx} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="px-8 py-6 font-bold text-slate-400">
+                      {new Date(item.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex flex-col">
+                        <span className="font-black italic text-slate-100 uppercase tracking-tighter">{item.description}</span>
+                        <span className="text-[10px] text-slate-500 font-bold">Pago ID: {item.payment_id}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6 text-center">
+                      <span className="text-xl font-black text-slate-200">${parseFloat(item.amount).toLocaleString()}</span>
+                    </td>
+                    <td className="px-8 py-6 text-center">
+                      <span className="px-4 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                        Aprobado
+                      </span>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      {item.invoice_url ? (
+                        <a href={item.invoice_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 ml-auto text-blue-400 hover:text-blue-300 font-black text-[10px] uppercase tracking-widest group transition-all">
+                          Ver Factura <ExternalLink size={12} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                        </a>
+                      ) : (
+                        <span className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">No Disponible</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

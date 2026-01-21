@@ -6,7 +6,7 @@ import {
   CheckCircle, Bell, AlertTriangle
 } from 'lucide-react';
 import { db } from '../services/db';
-import { Table, Order, Product, OrderItem, User, OrderItemStatus } from '../types';
+import { Table, Order, Product, OrderItem, User, OrderItemStatus, Tenant } from '../types';
 import { PLANS } from '../constants';
 
 interface ModalProps {
@@ -35,7 +35,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
   );
 };
 
-export const TablesPage: React.FC<{ tenantId: string, user: User }> = ({ tenantId, user }) => {
+export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenant | null; isCloud?: boolean }> = ({ tenantId, user, tenant: tenantProp, isCloud = false }) => {
   const [tables, setTables] = useState<Table[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [filterZone, setFilterZone] = useState('all');
@@ -49,17 +49,77 @@ export const TablesPage: React.FC<{ tenantId: string, user: User }> = ({ tenantI
   const [orderSearch, setOrderSearch] = useState('');
 
   // SaaS Context
-  const tenant = db.getTenant(tenantId);
+  const tenant = tenantProp || db.getTenant(tenantId);
   const isMultiUserPlan = tenant ? PLANS[tenant.plan].limits.users > 1 : false;
 
   useEffect(() => {
     refreshData();
-    setProducts(db.query<Product>('products', tenantId).filter(p => p.isActive));
-  }, [tenantId]);
+  }, [tenantId, isCloud]);
 
-  const refreshData = () => {
-    // Solo mostrar mesas activas (Soft delete filter)
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('gastroflow_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const refreshData = async () => {
+    if (isCloud) {
+      try {
+        const headers = getAuthHeaders();
+        const [tablesRes, productsRes] = await Promise.all([
+          fetch('/api/tables', { headers }),
+          fetch('/api/products', { headers }),
+        ]);
+
+        if (tablesRes.ok) {
+          const apiTables = await tablesRes.json();
+          setTables(
+            (apiTables as any[])
+              .filter(t => t.is_active !== false)
+              .map(t => ({
+                id: t.id,
+                tenantId: t.tenant_id,
+                number: t.number,
+                capacity: t.capacity,
+                zone: t.zone,
+                status: t.status,
+                isActive: t.is_active !== false,
+              }))
+          );
+        }
+
+        if (productsRes.ok) {
+          const apiProducts = await productsRes.json();
+          setProducts(
+            (apiProducts as any[])
+              .filter(p => p.is_active !== false)
+              .map(p => ({
+                id: p.id,
+                tenantId: p.tenant_id,
+                categoryId: p.category_id,
+                name: p.name,
+                description: p.description || '',
+                price: Number(p.price || 0),
+                cost: p.cost ? Number(p.cost) : undefined,
+                sku: p.sku || undefined,
+                stockEnabled: p.stock_enabled ?? false,
+                stockQuantity: p.stock_quantity ?? 0,
+                stockMin: p.stock_min ?? 0,
+                isActive: p.is_active !== false,
+                imageUrl: p.image_url || undefined,
+              }))
+          );
+        }
+      } catch (err) {
+        console.error('Error cargando mesas/productos desde API:', err);
+      }
+      return;
+    }
+
+    // Modo local (demo): usar adaptador in-memory
     setTables(db.query<Table>('tables', tenantId).filter(t => t.isActive));
+    setProducts(db.query<Product>('products', tenantId).filter(p => p.isActive));
   };
 
   const zones = Array.from(new Set(tables.map(t => t.zone)));
@@ -91,19 +151,36 @@ export const TablesPage: React.FC<{ tenantId: string, user: User }> = ({ tenantI
     }
   };
 
-  const handleDeleteTable = (e: React.MouseEvent, table: Table) => {
+  const handleDeleteTable = async (e: React.MouseEvent, table: Table) => {
     e.stopPropagation();
-    if (window.confirm(`¿Estás seguro de eliminar la Mesa ${table.number}?`)) {
+    if (!window.confirm(`¿Estás seguro de eliminar la Mesa ${table.number}?`)) return;
+
+    if (isCloud) {
       try {
-        db.removeTable(table.id, tenantId);
-        refreshData();
+        const headers = getAuthHeaders();
+        const res = await fetch(`/api/tables/${table.id}`, { method: 'DELETE', headers });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          alert(data?.error || 'No se pudo eliminar la mesa.');
+        } else {
+          refreshData();
+        }
       } catch (error: any) {
-        alert(error.message);
+        console.error(error);
+        alert('Error de red al eliminar la mesa.');
       }
+      return;
+    }
+
+    try {
+      db.removeTable(table.id, tenantId);
+      refreshData();
+    } catch (error: any) {
+      alert(error.message);
     }
   };
 
-  const handleSaveTable = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveTable = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     const formData = new FormData(e.currentTarget);
@@ -115,6 +192,59 @@ export const TablesPage: React.FC<{ tenantId: string, user: User }> = ({ tenantI
       status: (formData.get('status') as any) || 'AVAILABLE',
       isActive: true,
     };
+
+    if (isCloud) {
+      try {
+        const headers = getAuthHeaders();
+        if (editingTable) {
+          const res = await fetch(`/api/tables/${editingTable.id}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({
+              number: tableData.number,
+              capacity: tableData.capacity,
+              zone: tableData.zone,
+              status: tableData.status,
+              is_active: tableData.isActive,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            alert(data?.error || 'No se pudieron guardar los cambios de la mesa.');
+            setLoading(false);
+            return;
+          }
+        } else {
+          const res = await fetch('/api/tables', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              number: tableData.number,
+              capacity: tableData.capacity,
+              zone: tableData.zone,
+              status: tableData.status,
+              is_active: tableData.isActive,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            alert(data?.error || 'No se pudo crear la mesa.');
+            setLoading(false);
+            return;
+          }
+        }
+
+        await refreshData();
+        setIsModalOpen(false);
+        setEditingTable(null);
+        setLoading(false);
+      } catch (error: any) {
+        console.error(error);
+        alert('Error de red al guardar la mesa.');
+        setLoading(false);
+      }
+      return;
+    }
 
     if (editingTable) {
       db.update<Table>('tables', editingTable.id, tenantId, tableData);

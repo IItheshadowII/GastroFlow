@@ -782,12 +782,23 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
              </div>
           </div>
 
-          <div className="pt-6 border-t border-slate-800 flex flex-col sm:flex-row gap-3">
-            <button onClick={() => setIsOrderModalOpen(false)} className="order-2 sm:order-1 px-6 py-4 text-slate-500 hover:text-slate-100 font-black text-xs uppercase tracking-widest transition-colors text-center">Cerrar</button>
-            <div className="order-1 sm:order-2 flex-1 flex flex-col sm:flex-row gap-3">
-               <button onClick={() => handleCloseOrder('CASH')} className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]"><DollarSign size={20} /> Cobrar Efectivo</button>
-               <button onClick={() => handleCloseOrder('CARD')} className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]">Tarjeta</button>
+          <div className="pt-6 border-t border-slate-800 space-y-3">
+            {/* Guardar comanda */}
+            <button 
+              onClick={() => setIsOrderModalOpen(false)} 
+              className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]"
+            >
+              <Check size={20} /> Guardar y Continuar
+            </button>
+
+            {/* Cobrar */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button onClick={() => handleCloseOrder('CASH')} className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]"><DollarSign size={20} /> Cobrar Efectivo</button>
+              <button onClick={() => handleCloseOrder('CARD')} className="flex-1 py-4 bg-slate-700 hover:bg-slate-600 text-white rounded-2xl font-black transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98]">💳 Tarjeta</button>
             </div>
+
+            {/* Cancelar */}
+            <button onClick={() => setIsOrderModalOpen(false)} className="w-full px-6 py-3 text-slate-500 hover:text-slate-100 font-black text-xs uppercase tracking-widest transition-colors text-center">Cerrar sin guardar</button>
           </div>
         </div>
       </Modal>

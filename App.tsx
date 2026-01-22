@@ -1040,6 +1040,8 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
   const [trialAction, setTrialAction] = useState<'extend' | 'end' | 'set'>('extend');
   const [trialDate, setTrialDate] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{ tenantId: string; tenantName: string } | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -1105,6 +1107,42 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
       }
     } catch (err) {
       console.error('Error modifying trial:', err);
+      alert('Error de conexión');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteTenant = async () => {
+    if (!deleteModal) return;
+    if (deleteConfirmName !== deleteModal.tenantName) {
+      alert('El nombre no coincide. Verificá y volvé a intentar.');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('gastroflow_admin_token');
+      const res = await fetch(`/api/admin/tenants/${deleteModal.tenantId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ confirmName: deleteConfirmName }),
+      });
+      
+      const result = await res.json();
+      if (res.ok) {
+        alert(result.message || 'Tenant eliminado completamente');
+        setDeleteModal(null);
+        setDeleteConfirmName('');
+        fetchDashboard();
+      } else {
+        alert(result.error || 'Error al eliminar');
+      }
+    } catch (err) {
+      console.error('Error deleting tenant:', err);
       alert('Error de conexión');
     } finally {
       setActionLoading(false);
@@ -1228,12 +1266,20 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
                               : formatDate(t.nextBillingDate || t.next_billing_date)}
                           </td>
                           <td className="px-6 py-4">
-                            <button
-                              onClick={() => setTrialModal({ tenantId: t.id, tenantName: t.name })}
-                              className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs font-bold rounded-lg transition-colors"
-                            >
-                              Gestionar Trial
-                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setTrialModal({ tenantId: t.id, tenantName: t.name })}
+                                className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs font-bold rounded-lg transition-colors"
+                              >
+                                Gestionar Trial
+                              </button>
+                              <button
+                                onClick={() => { setDeleteModal({ tenantId: t.id, tenantName: t.name }); setDeleteConfirmName(''); }}
+                                className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-xs font-bold rounded-lg transition-colors"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             <button
@@ -1386,6 +1432,65 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
                     }`}
                   >
                     {actionLoading ? <Loader2 className="animate-spin mx-auto" size={18} /> : 'Confirmar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Tenant Modal */}
+        {deleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+            <div className="bg-slate-900 border border-red-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+              <div className="px-6 py-4 bg-red-500/10 border-b border-red-800 flex justify-between items-center">
+                <h3 className="text-lg font-black text-red-400">⚠️ Eliminar Tenant</h3>
+                <button onClick={() => { setDeleteModal(null); setDeleteConfirmName(''); }} className="p-2 hover:bg-red-800/30 rounded-xl">
+                  <X size={18} className="text-red-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-5">
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl space-y-2">
+                  <p className="text-red-400 text-sm font-black">ESTA ACCIÓN ES IRREVERSIBLE</p>
+                  <p className="text-slate-400 text-xs">
+                    Se eliminarán TODOS los datos del tenant:
+                  </p>
+                  <ul className="text-slate-500 text-xs space-y-1 ml-4">
+                    <li>• Todas las mesas y comandas</li>
+                    <li>• Todo el catálogo de productos</li>
+                    <li>• Todos los usuarios y roles</li>
+                    <li>• Todos los reportes y turnos</li>
+                    <li>• TODO el historial</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <p className="text-sm text-slate-400 mb-2">
+                    Para confirmar, escribí el nombre exacto del negocio:
+                  </p>
+                  <p className="text-white font-bold mb-3 px-3 py-2 bg-slate-800 rounded-lg">{deleteModal.tenantName}</p>
+                  <input
+                    type="text"
+                    value={deleteConfirmName}
+                    onChange={(e) => setDeleteConfirmName(e.target.value)}
+                    placeholder="Escribí el nombre exacto aquí"
+                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-3">
+                  <button
+                    onClick={() => { setDeleteModal(null); setDeleteConfirmName(''); }}
+                    className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleDeleteTenant}
+                    disabled={actionLoading || deleteConfirmName !== deleteModal.tenantName}
+                    className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {actionLoading ? <Loader2 className="animate-spin mx-auto" size={18} /> : 'Eliminar Permanentemente'}
                   </button>
                 </div>
               </div>

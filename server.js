@@ -806,6 +806,12 @@ app.post('/api/app/auth/register', async (req, res) => {
       return res.status(409).json({ error: 'Este email ya está registrado. Si olvidaste tu contraseña, usá "Recuperar contraseña".' });
     }
 
+    // Validar que el nombre del negocio no esté duplicado (caso insensitivo)
+    const existingTenant = await pool.query('SELECT 1 FROM tenants WHERE LOWER(name) = LOWER($1) LIMIT 1', [tenantName]);
+    if (existingTenant.rows.length > 0) {
+      return res.status(409).json({ error: 'Ya existe un negocio con ese nombre. Por favor, elegí otro nombre para tu empresa.' });
+    }
+
     // Anti-abuso de trial: verificar si este email ya tuvo trial antes
     const trialCheck = await pool.query('SELECT 1 FROM trial_history WHERE email = $1 LIMIT 1', [email.toLowerCase()]);
     const hadTrialBefore = trialCheck.rows.length > 0;
@@ -1248,6 +1254,62 @@ app.patch('/api/admin/tenants/:tenantId/trial', requireGlobalAdmin, async (req, 
   } catch (error) {
     console.error('admin trial modify error:', error);
     return res.status(500).json({ error: 'failed' });
+  }
+});
+
+// Eliminar un tenant completo (admin global) - DESTRUCTIVO
+app.delete('/api/admin/tenants/:tenantId', requireGlobalAdmin, async (req, res) => {
+  const { tenantId } = req.params;
+  const { confirmName } = req.body || {};
+  
+  try {
+    if (!isUuid(tenantId)) return res.status(400).json({ error: 'tenantId inválido' });
+
+    const tenantRes = await pool.query('SELECT name FROM tenants WHERE id = $1', [tenantId]);
+    const tenant = tenantRes.rows[0];
+    if (!tenant) return res.status(404).json({ error: 'Tenant no encontrado' });
+
+    // Verificación de seguridad: el nombre del negocio debe coincidir
+    if (!confirmName || confirmName !== tenant.name) {
+      return res.status(400).json({ 
+        error: 'Para eliminar el tenant, debes enviar confirmName con el nombre exacto del negocio',
+        tenantName: tenant.name
+      });
+    }
+
+    console.log(`[ADMIN] Eliminando tenant completo: ${tenantId} (${tenant.name})`);
+
+    // Eliminar TODO relacionado al tenant en orden de dependencias
+    await pool.query('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE tenant_id = $1)', [tenantId]);
+    await pool.query('DELETE FROM orders WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM tables WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM products WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM categories WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM shifts WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM audit_logs WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM billing_history WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM users WHERE tenant_id = $1', [tenantId]);
+    await pool.query('DELETE FROM roles WHERE tenant_id = $1', [tenantId]);
+    
+    // Actualizar trial_history (no eliminar, mantener registro de anti-abuso)
+    await pool.query(
+      `UPDATE trial_history SET tenant_id = NULL, ended_at = NOW(), reason = 'tenant_deleted' 
+       WHERE tenant_id = $1`,
+      [tenantId]
+    );
+
+    // Por último, eliminar el tenant mismo
+    await pool.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
+
+    return res.json({ 
+      ok: true, 
+      message: `Tenant "${tenant.name}" eliminado completamente`,
+      deletedTenantId: tenantId
+    });
+
+  } catch (error) {
+    console.error('admin delete tenant error:', error);
+    return res.status(500).json({ error: 'No se pudo eliminar el tenant', details: error.message });
   }
 });
 

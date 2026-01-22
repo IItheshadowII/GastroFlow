@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
-import { Dashboard } from './pages/Dashboard';
 import { CatalogPage } from './pages/Catalog';
 import { TablesPage } from './pages/Tables';
 import { UsersRolesPage } from './pages/UsersRoles';
@@ -1689,7 +1688,7 @@ const App: React.FC = () => {
   const permissions = user.permissions || userRole?.permissions || [];
 
   const pagePermissionMap: Record<string, string> = {
-    'dashboard': 'dashboard.view',
+    
     'reports': 'reports.view',
     'tables': 'tables.view',
     'kitchen': 'kitchen.view',
@@ -1751,7 +1750,6 @@ const App: React.FC = () => {
 
       {!hasAccess ? <AccessDenied /> : (
         <>
-          {currentActivePage === 'dashboard' && <Dashboard tenantId={tenant.id} />}
           {currentActivePage === 'reports' && <ReportsPage tenantId={tenant.id} isCloud={isCloud} />}
           {currentActivePage === 'catalog' && <CatalogPage tenantId={tenant.id} user={user} isCloud={isCloud} />}
           {currentActivePage === 'kitchen' && <KitchenPage tenantId={tenant.id} isCloud={isCloud} />}

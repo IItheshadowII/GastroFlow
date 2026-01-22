@@ -69,7 +69,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, tenant, onLogout
     { id: 'tables', label: 'Salón', icon: TableIcon, permission: 'tables.view' },
     { id: 'kitchen', label: 'Cocina', icon: ChefHat, permission: 'kitchen.view' },
     { id: 'catalog', label: 'Catálogo', icon: Layers, permission: 'menu.view' },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
     { id: 'reports', label: 'Reportes BI', icon: BarChart3, permission: 'reports.view' },
     { id: 'cash', label: 'Caja/Turnos', icon: Wallet, permission: 'cash.manage' },
     { id: 'users', label: 'Usuarios y Roles', icon: Users, permission: 'users.view' },

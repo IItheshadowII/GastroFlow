@@ -46,7 +46,7 @@ export const KitchenPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({
             id: o.id,
             tenantId: o.tenant_id,
             tableId: o.table_id,
-            items: o.items || [],
+            items: Array.isArray(o.items) ? o.items : [],
             status: o.status,
             total: Number(o.total || 0),
             paymentMethod: o.payment_method || undefined,
@@ -73,7 +73,7 @@ export const KitchenPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({
         }
 
         const filteredOrders = orders.filter(o =>
-          o.status === 'OPEN' && o.items.some((i: any) => i.status === 'PREPARING' || i.status === 'READY')
+          o.status === 'OPEN' && Array.isArray(o.items) && o.items.some((i: any) => i.status === 'PREPARING' || i.status === 'READY')
         );
 
         setActiveOrders(filteredOrders);
@@ -85,7 +85,7 @@ export const KitchenPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({
     }
 
     const orders = db.query<Order>('orders', tenantId)
-      .filter(o => o.status === 'OPEN' && o.items.some(i => i.status === 'PREPARING' || i.status === 'READY'));
+      .filter(o => o.status === 'OPEN' && Array.isArray(o.items) && o.items.some(i => i.status === 'PREPARING' || i.status === 'READY'));
     
     const tablesData = db.query<Table>('tables', tenantId);
     

@@ -600,8 +600,8 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     refreshData();
   };
 
-  const hasPendingToKitchen = activeOrder?.items.some(i => i.status === 'PENDING');
-  const hasReadyToServe = activeOrder?.items.some(i => i.status === 'READY');
+  const hasPendingToKitchen = (activeOrder?.items || []).some(i => i.status === 'PENDING');
+  const hasReadyToServe = (activeOrder?.items || []).some(i => i.status === 'READY');
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -637,7 +637,9 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
           const tableOrder = isCloud
             ? orders.find(o => o.tableId === table.id && o.status === 'OPEN')
             : db.getActiveOrderForTable(table.id, tenantId);
-          const hasReady = tableOrder?.items.some(i => i.status === 'READY');
+          const hasReady = tableOrder && Array.isArray(tableOrder.items)
+            ? tableOrder.items.some(i => i.status === 'READY')
+            : false;
           
           return (
             <div 

@@ -38,7 +38,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
   );
 };
 
-export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenantId, user }) => {
+export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boolean; tenant?: Tenant | null }> = ({ tenantId, user, isCloud = false, tenant: tenantProp }) => {
   const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'history'>('products');
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -64,13 +64,90 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
   const productNameRef = useRef<HTMLInputElement>(null);
   const productDescRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    refreshData();
-  }, [tenantId]);
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('gastroflow_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
 
-  const refreshData = () => {
+  const refreshData = async () => {
+    if (isCloud) {
+      try {
+        const headers = getAuthHeaders();
+        const [catsRes, prodsRes, logsRes] = await Promise.all([
+          fetch('/api/categories', { headers }),
+          fetch('/api/products', { headers }),
+          fetch('/api/audit_logs', { headers }).catch(() => null),
+        ]);
+
+        if (catsRes.ok) {
+          const apiCats = await catsRes.json();
+          setCategories(
+            (apiCats as any[])
+              .filter(c => c.is_active !== false)
+              .map(c => ({
+                id: c.id,
+                tenantId: c.tenant_id,
+                name: c.name,
+                order: typeof c.sort_order === 'number' ? c.sort_order : 0,
+              }))
+              .sort((a, b) => a.order - b.order)
+          );
+        }
+
+        if (prodsRes.ok) {
+          const apiProducts = await prodsRes.json();
+          setProducts(
+            (apiProducts as any[])
+              .filter(p => p.is_active !== false)
+              .map(p => ({
+                id: p.id,
+                tenantId: p.tenant_id,
+                categoryId: p.category_id,
+                name: p.name,
+                description: p.description || '',
+                price: Number(p.price || 0),
+                cost: p.cost ? Number(p.cost) : undefined,
+                sku: p.sku || undefined,
+                stockEnabled: p.stock_enabled ?? false,
+                stockQuantity: p.stock_quantity ?? 0,
+                stockMin: p.stock_min ?? 0,
+                isActive: p.is_active !== false,
+                imageUrl: p.image_url || undefined,
+              }))
+          );
+        }
+
+        if (logsRes && logsRes.ok) {
+          const apiLogs = await logsRes.json();
+          setLogs(
+            (apiLogs as any[])
+              .filter(l => l.action === 'STOCK_ADJUST')
+              .map(l => ({
+                id: l.id,
+                tenantId: l.tenant_id,
+                userId: l.user_id,
+                action: l.action,
+                entityType: l.entity_type,
+                entityId: l.entity_id,
+                before: l.payload?.before || {},
+                after: l.payload?.after || {},
+                timestamp: l.created_at,
+              }))
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          );
+        } else {
+          setLogs([]);
+        }
+      } catch (err) {
+        console.error('Error cargando catálogo desde API:', err);
+      }
+      return;
+    }
+
+    // Modo local (demo)
     setCategories(db.query<Category>('categories', tenantId).sort((a, b) => a.order - b.order));
-    // Filter active products
     setProducts(db.query<Product>('products', tenantId).filter(p => p.isActive));
     setLogs(db.query<AuditLog>('audit_logs', tenantId)
       .filter(l => l.action === 'STOCK_ADJUST')
@@ -78,7 +155,32 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
     );
   };
 
+  useEffect(() => {
+    refreshData();
+  }, [tenantId, isCloud]);
+
   const handleQuickStock = (productId: string, amount: number) => {
+    if (isCloud) {
+      const product = products.find(p => p.id === productId);
+      if (!product || !product.stockEnabled) return;
+      const newQty = (product.stockQuantity || 0) + amount;
+      const headers = getAuthHeaders();
+      fetch(`/api/products/${productId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ stock_quantity: newQty }),
+      })
+        .then(res => {
+          if (!res.ok) return res.json().then(d => { throw new Error(d?.error || 'No se pudo ajustar stock'); });
+        })
+        .then(() => refreshData())
+        .catch(err => {
+          console.error(err);
+          alert(err.message || 'Error al ajustar stock');
+        });
+      return;
+    }
+
     db.adjustStock(productId, tenantId, user.id, amount, 'Ajuste rápido desde catálogo');
     refreshData();
   };
@@ -86,8 +188,30 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
   const handleManualStockApply = (productId: string) => {
     const val = parseInt(manualAdjustments[productId]);
     if (isNaN(val) || val === 0) return;
-    
-    db.adjustStock(productId, tenantId, user.id, val, 'Ajuste manual por teclado');
+
+    if (isCloud) {
+      const product = products.find(p => p.id === productId);
+      if (!product || !product.stockEnabled) return;
+      const newQty = (product.stockQuantity || 0) + val;
+      const headers = getAuthHeaders();
+      fetch(`/api/products/${productId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ stock_quantity: newQty }),
+      })
+        .then(res => {
+          if (!res.ok) return res.json().then(d => { throw new Error(d?.error || 'No se pudo ajustar stock'); });
+        })
+        .then(() => refreshData())
+        .catch(err => {
+          console.error(err);
+          alert(err.message || 'Error al ajustar stock');
+        });
+    } else {
+      db.adjustStock(productId, tenantId, user.id, val, 'Ajuste manual por teclado');
+      refreshData();
+    }
+
     setManualAdjustments(prev => {
       const next = { ...prev };
       delete next[productId];
@@ -99,12 +223,23 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
   const handleDelete = (type: 'products' | 'categories', id: string) => {
     if (window.confirm(`¿Seguro que deseas eliminar este elemento?`)) {
       try {
-        if (type === 'products') {
-          db.removeProduct(id, tenantId);
+        if (isCloud) {
+          const headers = getAuthHeaders();
+          const resource = type === 'products' ? 'products' : 'categories';
+          fetch(`/api/${resource}/${id}`, { method: 'DELETE', headers })
+            .then(res => {
+              if (!res.ok) return res.json().then(d => { throw new Error(d?.error || 'No se pudo eliminar'); });
+            })
+            .then(() => refreshData())
+            .catch((e: any) => alert(e.message || 'Error al eliminar'));
         } else {
-          db.removeCategory(id, tenantId);
+          if (type === 'products') {
+            db.removeProduct(id, tenantId);
+          } else {
+            db.removeCategory(id, tenantId);
+          }
+          refreshData();
         }
-        refreshData();
       } catch (e: any) {
         alert(e.message);
       }
@@ -489,12 +624,36 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
         title={editingItem ? `Editar ${modalType === 'product' ? 'Producto' : 'Categoría'}` : `Nuevo ${modalType === 'product' ? 'Producto' : 'Categoría'}`}
       >
         {modalType === 'category' ? (
-          <form onSubmit={(e) => {
+          <form onSubmit={async (e) => {
             e.preventDefault();
             const name = new FormData(e.currentTarget).get('name') as string;
-            if (editingItem) db.update<Category>('categories', editingItem.id, tenantId, { name });
-            else db.insert<Category>('categories', { id: `cat-${Date.now()}`, tenantId, name, order: categories.length + 1 });
-            refreshData(); setIsModalOpen(false);
+            if (isCloud) {
+              try {
+                const headers = getAuthHeaders();
+                if (editingItem) {
+                  await fetch(`/api/categories/${editingItem.id}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ name }),
+                  });
+                } else {
+                  await fetch('/api/categories', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ name, sort_order: categories.length }),
+                  });
+                }
+                await refreshData();
+                setIsModalOpen(false);
+              } catch (err: any) {
+                console.error(err);
+                alert(err.message || 'No se pudo guardar la categoría');
+              }
+            } else {
+              if (editingItem) db.update<Category>('categories', editingItem.id, tenantId, { name });
+              else db.insert<Category>('categories', { id: `cat-${Date.now()}`, tenantId, name, order: categories.length + 1 });
+              refreshData(); setIsModalOpen(false);
+            }
           }} className="space-y-6">
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-500 uppercase tracking-widest ml-1">Nombre de la Categoría</label>
@@ -505,7 +664,7 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
             </button>
           </form>
         ) : (
-          <form onSubmit={(e) => {
+          <form onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             const data: any = {
@@ -520,9 +679,48 @@ export const CatalogPage: React.FC<{ tenantId: string, user: User }> = ({ tenant
               isActive: true,
               imageUrl: generatedImageUrl
             };
-            if (editingItem?.id) db.update<Product>('products', editingItem.id, tenantId, data);
-            else db.insert<Product>('products', { id: `p-${Date.now()}`, tenantId, ...data });
-            refreshData(); setIsModalOpen(false);
+
+            if (isCloud) {
+              try {
+                const headers = getAuthHeaders();
+                const payload: any = {
+                  name: data.name,
+                  sku: data.sku || undefined,
+                  category_id: data.categoryId || null,
+                  price: data.price,
+                  description: data.description || '',
+                  stock_enabled: data.stockEnabled,
+                  stock_quantity: data.stockQuantity,
+                  stock_min: data.stockMin,
+                  is_active: true,
+                  image_url: data.imageUrl || null,
+                };
+
+                if (editingItem?.id) {
+                  await fetch(`/api/products/${editingItem.id}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify(payload),
+                  });
+                } else {
+                  await fetch('/api/products', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payload),
+                  });
+                }
+
+                await refreshData();
+                setIsModalOpen(false);
+              } catch (err: any) {
+                console.error(err);
+                alert(err.message || 'No se pudo guardar el producto');
+              }
+            } else {
+              if (editingItem?.id) db.update<Product>('products', editingItem.id, tenantId, data);
+              else db.insert<Product>('products', { id: `p-${Date.now()}`, tenantId, ...data });
+              refreshData(); setIsModalOpen(false);
+            }
           }} className="space-y-6">
             <div className="grid grid-cols-2 gap-6">
               <div className="col-span-2 flex flex-col items-center gap-4">

@@ -29,18 +29,53 @@ import { Order, Product, Category } from '../types';
 
 type Timeframe = 'daily' | 'weekly' | 'monthly';
 
-export const ReportsPage: React.FC<{ tenantId: string }> = ({ tenantId }) => {
+export const ReportsPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({ tenantId, isCloud = false }) => {
   const [timeframe, setTimeframe] = useState<Timeframe>('weekly');
   const [reportData, setReportData] = useState<any>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
 
   const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444'];
 
   useEffect(() => {
-    calculateReports();
-  }, [tenantId, timeframe]);
+    const load = async () => {
+      if (isCloud) {
+        try {
+          const token = localStorage.getItem('gastroflow_token');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const res = await fetch('/api/orders', { headers });
+          if (res.ok) {
+            const apiOrders = await res.json();
+            const mapped: Order[] = (apiOrders as any[]).map(o => ({
+              id: o.id,
+              tenantId: o.tenant_id,
+              tableId: o.table_id,
+              items: o.items || [],
+              status: o.status,
+              total: Number(o.total || 0),
+              paymentMethod: o.payment_method || undefined,
+              openedAt: o.opened_at,
+              closedAt: o.closed_at || undefined,
+              closedBy: o.closed_by || undefined,
+            }));
+            setOrders(mapped);
+            calculateReports(mapped);
+          } else {
+            calculateReports();
+          }
+        } catch (err) {
+          console.error('Error fetching orders for reports:', err);
+          calculateReports();
+        }
+      } else {
+        calculateReports();
+      }
+    };
+    load();
+  }, [tenantId, timeframe, isCloud]);
 
-  const calculateReports = () => {
-    const orders = db.query<Order>('orders', tenantId).filter(o => o.status === 'PAID' && o.closedAt);
+  const calculateReports = (inputOrders?: Order[]) => {
+    const orders = inputOrders ?? db.query<Order>('orders', tenantId).filter(o => o.status === 'PAID' && o.closedAt);
     const products = db.query<Product>('products', tenantId);
     const categories = db.query<Category>('categories', tenantId);
 

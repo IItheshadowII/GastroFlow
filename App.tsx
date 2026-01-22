@@ -1681,6 +1681,7 @@ const App: React.FC = () => {
   const trialDaysLeft = isTrial && trialEndsAt
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now) / (1000 * 60 * 60 * 24)))
     : null;
+  const isTrialActive = isTrial && trialEndsAt && trialEndsAt.getTime() > now;
   const currentActivePage = isLocked ? 'billing' : activePage;
 
   // Lógica de permisos por rol
@@ -1698,7 +1699,8 @@ const App: React.FC = () => {
     'cash': 'cash.manage'
   };
 
-  const hasAccess = !pagePermissionMap[currentActivePage] || permissions.includes(pagePermissionMap[currentActivePage]);
+  // Durante TRIAL activo, habilitar todas las funciones (ignorando permisos)
+  const hasAccess = isTrialActive || !pagePermissionMap[currentActivePage] || permissions.includes(pagePermissionMap[currentActivePage]);
 
   return (
     <Layout

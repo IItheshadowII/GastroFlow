@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { db } from '../services/db';
 import { PlanTier, SubscriptionStatus } from '../types';
-import { PLANS } from '../constants';
+import { PERMISSIONS, PLANS } from '../constants';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -56,7 +56,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, tenant, onLogout
   
   // En cloud, los permisos vienen del user (desde API); en local, del rol
   const userRole = db.query<any>('roles', user.tenantId).find(r => r.id === user.roleId);
-  const permissions = user.permissions?.length ? user.permissions : (userRole?.permissions || []);
+  const rolePermissions = user.permissions?.length ? user.permissions : (userRole?.permissions || []);
 
   // Determinar si está en TRIAL activo (no expirado)
   // Comparar como strings para evitar problemas de enum vs string
@@ -64,6 +64,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, tenant, onLogout
   const trialEndsAt = tenant?.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
   const isTrial = tenant?.subscriptionStatus === 'TRIAL' || tenant?.subscriptionStatus === SubscriptionStatus.TRIAL;
   const isTrialActive = isTrial && trialEndsAt && trialEndsAt.getTime() > now;
+
+  // Durante TRIAL activo: habilitar todas las funciones (como PRO/Enterprise)
+  const permissions = isTrialActive ? PERMISSIONS.map(p => p.id) : rolePermissions;
 
   const menuItems = [
     { id: 'tables', label: 'Salón', icon: TableIcon, permission: 'tables.view' },
@@ -75,14 +78,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, tenant, onLogout
     { id: 'billing', label: 'Suscripción', icon: CreditCard, permission: 'billing.manage' },
   ];
 
-  // Filtrar siempre por permisos del usuario/rol
+  // Durante TRIAL activo: mostrar todas las funciones. Caso contrario: filtrar por permisos del usuario/rol.
   const allowedMenuItems = menuItems.filter(item => {
     const hasPerm = permissions.includes(item.permission);
     
-    // El módulo de cocina solo existe para planes multi-usuario
+    // Cocina requiere plan multi-usuario, excepto durante TRIAL (donde está todo habilitado)
     if (item.id === 'kitchen' && tenant) {
       const isMultiUserPlan = PLANS[tenant.plan].limits.users > 1;
-      return hasPerm && isMultiUserPlan;
+      return hasPerm && (isTrialActive || isMultiUserPlan);
     }
     
     return hasPerm;

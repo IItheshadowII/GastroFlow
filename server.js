@@ -1262,6 +1262,10 @@ app.delete('/api/admin/tenants/:tenantId', requireGlobalAdmin, async (req, res) 
   const { tenantId } = req.params;
   const { confirmName } = req.body || {};
   
+  console.log('[DELETE TENANT] Params:', req.params);
+  console.log('[DELETE TENANT] Body:', req.body);
+  console.log('[DELETE TENANT] confirmName:', confirmName);
+  
   try {
     if (!isUuid(tenantId)) return res.status(400).json({ error: 'tenantId inválido' });
 
@@ -1285,8 +1289,6 @@ app.delete('/api/admin/tenants/:tenantId', requireGlobalAdmin, async (req, res) 
     await pool.query('DELETE FROM tables WHERE tenant_id = $1', [tenantId]);
     await pool.query('DELETE FROM products WHERE tenant_id = $1', [tenantId]);
     await pool.query('DELETE FROM categories WHERE tenant_id = $1', [tenantId]);
-    await pool.query('DELETE FROM shifts WHERE tenant_id = $1', [tenantId]);
-    await pool.query('DELETE FROM audit_logs WHERE tenant_id = $1', [tenantId]);
     await pool.query('DELETE FROM billing_history WHERE tenant_id = $1', [tenantId]);
     await pool.query('DELETE FROM users WHERE tenant_id = $1', [tenantId]);
     await pool.query('DELETE FROM roles WHERE tenant_id = $1', [tenantId]);

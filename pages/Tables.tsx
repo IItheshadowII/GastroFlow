@@ -615,6 +615,19 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
 
   const hasPendingToKitchen = (activeOrder?.items || []).some(i => i.status === 'PENDING');
   const hasReadyToServe = (activeOrder?.items || []).some(i => i.status === 'READY');
+  const canSendToKitchen = hasPendingToKitchen && (
+    Array.isArray(user?.permissions) && (
+      user.permissions.includes('tables.edit') ||
+      user.permissions.includes('tables.manage') ||
+      user.permissions.includes('kitchen.manage')
+    )
+  );
+  const canServeReady = hasReadyToServe && (
+    Array.isArray(user?.permissions) && (
+      user.permissions.includes('kitchen.manage') ||
+      user.permissions.includes('tables.edit')
+    )
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -758,10 +771,10 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
              </div>
 
              <div className="flex gap-4">
-                {isMultiUserPlan && hasPendingToKitchen && (
+                {canSendToKitchen && (
                   <button onClick={handleSendToKitchen} className="flex-1 py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-2xl font-black transition-all flex items-center justify-center gap-3 active:scale-95 animate-pulse"><Send size={18} /> Enviar a Cocina</button>
                 )}
-                {isMultiUserPlan && hasReadyToServe && (
+                {canServeReady && (
                   <button onClick={handleServeReadyItems} className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black transition-all flex items-center justify-center gap-3 active:scale-95 animate-bounce"><CheckCircle size={20} /> Entregar Todo</button>
                 )}
              </div>

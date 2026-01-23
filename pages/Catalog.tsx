@@ -159,6 +159,21 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
     refreshData();
   }, [tenantId, isCloud]);
 
+  // Realtime: actualizar catálogo cuando lleguen eventos de products desde el servidor (cloud)
+  useEffect(() => {
+    if (!isCloud) return;
+
+    const handler = (e: any) => {
+      const type = e?.detail?.type;
+      if (type === 'products.changed' || type === 'categories.changed') {
+        refreshData();
+      }
+    };
+
+    window.addEventListener('tenant:event', handler);
+    return () => window.removeEventListener('tenant:event', handler);
+  }, [tenantId, isCloud]);
+
   const handleQuickStock = (productId: string, amount: number) => {
     if (isCloud) {
       const product = products.find(p => p.id === productId);

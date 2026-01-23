@@ -522,11 +522,27 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
         const total = remaining.reduce((acc, i) => acc + i.price * i.quantity, 0);
         const updated: Order = { ...activeOrder, items: remaining, total };
         const saved = await saveOrderToApi(updated);
-        setActiveOrder(saved);
-        setOrders(prev => {
-          const others = prev.filter(o => o.id !== saved.id);
-          return [...others, saved];
-        });
+
+        // Si la comanda quedó vacía, liberar la mesa en backend y limpiar estado local
+        if (!saved.items || saved.items.length === 0) {
+          try {
+            await fetch(`/api/tables/${activeTable.id}`, { method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify({ status: 'AVAILABLE' }) });
+          } catch (e) {
+            console.error('No se pudo actualizar el estado de la mesa a AVAILABLE', e);
+          }
+
+          setOrders(prev => prev.filter(o => o.id !== saved.id));
+          setActiveOrder(null);
+          setIsOrderModalOpen(false);
+          setActiveTable(null);
+          await refreshData();
+        } else {
+          setActiveOrder(saved);
+          setOrders(prev => {
+            const others = prev.filter(o => o.id !== saved.id);
+            return [...others, saved];
+          });
+        }
       } catch (err: any) {
         console.error(err);
         alert(err.message || 'No se pudo actualizar la comanda.');
@@ -535,7 +551,17 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     }
 
     const updated = db.removeItemFromOrder(activeOrder.id, tenantId, productId);
-    setActiveOrder(updated);
+    // Si la comanda local quedó vacía, liberar la mesa localmente y limpiar estado
+    if (!updated.items || updated.items.length === 0) {
+      try {
+        db.update<Table>('tables', activeTable.id, tenantId, { status: 'AVAILABLE' });
+      } catch (e) { console.error(e); }
+      setActiveOrder(null);
+      setActiveTable(null);
+      refreshData();
+    } else {
+      setActiveOrder(updated);
+    }
   };
 
   const handleSendToKitchen = async () => {

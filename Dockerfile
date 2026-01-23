@@ -1,6 +1,7 @@
 # ====================================
 # GastroFlow SaaS - Dockerfile
 # Para despliegue en EasyPanel
+# BUILD: 2026-01-23 v2.1.1
 # ====================================
 
 # Etapa 1: Build del Frontend

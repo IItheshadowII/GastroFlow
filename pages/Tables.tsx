@@ -407,9 +407,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
           closedBy: saved.closed_by || undefined,
         };
 
-        // Marcar mesa como ocupada
-        await fetch(`/api/tables/${editingTable.id}`, { method: 'PUT', headers, body: JSON.stringify({ status: 'OCCUPIED' }) });
-
+        // No marcar la mesa como ocupada todavía: se marcará cuando se agregue el primer ítem
         // Actualizar estado local y abrir directamente el modal de consumo
         setOrders(prev => {
           const others = prev.filter(o => o.id !== savedOrder.id);
@@ -421,11 +419,10 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
         setIsOrderModalOpen(true);
         setEditingTable(null);
       } else {
-        db.update<Table>('tables', editingTable.id, tenantId, { status: 'OCCUPIED' });
-        db.createOrder(editingTable.id, tenantId);
-        const order = db.getActiveOrderForTable(editingTable.id, tenantId);
+        // No crear ni marcar como ocupada hasta que se agregue el primer ítem.
+        // Sólo preparamos el modal de comanda (sin crear la orden aún).
         setActiveTable(editingTable);
-        setActiveOrder(order || null);
+        setActiveOrder(null);
         setIsModalOpen(false);
         setIsOrderModalOpen(true);
       }
@@ -468,7 +465,16 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
         const total = items.reduce((acc, i) => acc + i.price * i.quantity, 0);
         order = { ...order, items, total };
 
+        const wasEmpty = (order.items || []).length === 0;
         const saved = await saveOrderToApi(order);
+        // Si la orden estaba vacía antes de agregar este ítem, marcar la mesa como OCCUPIED
+        if (wasEmpty) {
+          try {
+            await fetch(`/api/tables/${activeTable.id}`, { method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify({ status: 'OCCUPIED' }) });
+          } catch (e) {
+            console.error('No se pudo actualizar el estado de la mesa a OCCUPIED', e);
+          }
+        }
         setActiveOrder(saved);
         setOrders(prev => {
           const others = prev.filter(o => o.id !== saved.id);
@@ -482,12 +488,19 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     }
 
     if (!activeOrder) return;
+    const wasEmptyLocal = (activeOrder.items || []).length === 0;
     db.addItemsToOrder(activeOrder.id, tenantId, [{
       productId: product.id,
       name: product.name,
       quantity: 1,
       price: product.price
     }]);
+    // Si era la primera línea, marcar la mesa como ocupada localmente
+    if (wasEmptyLocal) {
+      try {
+        db.update<Table>('tables', activeTable!.id, tenantId, { status: 'OCCUPIED' });
+      } catch (e) { console.error(e); }
+    }
     setActiveOrder(db.getActiveOrderForTable(activeTable!.id, tenantId) || null);
   };
 

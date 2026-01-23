@@ -340,7 +340,7 @@ class DBService {
     if (!tenant) return false;
     const currentActiveUsers = this.query<User>('users', tenantId).filter(u => u.isActive).length;
     const trialEndsAt = tenant?.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
-    const isTrialActive = (tenant.subscriptionStatus === 'TRIAL' || tenant.subscriptionStatus === SubscriptionStatus.TRIAL) && trialEndsAt && trialEndsAt.getTime() > Date.now();
+    const isTrialActive = tenant && String(tenant.subscriptionStatus).toUpperCase() === 'TRIAL' && trialEndsAt && trialEndsAt.getTime() > Date.now();
     const effectivePlan = isTrialActive ? PlanTier.ENTERPRISE : tenant.plan;
     const limit = PLANS[effectivePlan].limits.users;
     return currentActiveUsers < limit;

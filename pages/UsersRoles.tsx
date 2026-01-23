@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { PlanTier } from '../types';
 import { 
   UserPlus, Shield, MoreHorizontal, UserCheck, UserX, 
   X, Check, Loader2, Trash2, ShieldPlus, Lock, 
@@ -720,7 +721,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
               <h4 className="text-2xl font-black text-white italic tracking-tight">¡Has alcanzado tu límite!</h4>
               {(() => {
                 const trialEndsAt = tenant?.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
-                const isTrialActive = tenant && (tenant.subscriptionStatus === 'TRIAL' || tenant.subscriptionStatus === SubscriptionStatus.TRIAL) && trialEndsAt && trialEndsAt.getTime() > Date.now();
+                const isTrialActive = tenant && String(tenant.subscriptionStatus).toUpperCase() === 'TRIAL' && trialEndsAt && trialEndsAt.getTime() > Date.now();
                 const effectivePlan = isTrialActive ? PlanTier.ENTERPRISE : (tenant ? tenant.plan : PlanTier.BASIC);
                 return (<p className="text-slate-400 font-medium">Tu plan actual <b>{PLANS[effectivePlan].name}{isTrialActive ? ' (TRIAL)' : ''}</b> solo permite un máximo de <b>{userLimit}</b> usuarios.</p>);
               })()}

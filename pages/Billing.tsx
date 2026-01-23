@@ -187,7 +187,7 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
                 <span className="px-5 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-500/30 font-black rounded-full text-xs uppercase tracking-[0.1em]">
                   {(() => {
                     const trialEndsAt = tenant?.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
-                    const isTrialActive = tenant && (tenant.subscriptionStatus === 'TRIAL' || tenant.subscriptionStatus === SubscriptionStatus.TRIAL) && trialEndsAt && trialEndsAt.getTime() > Date.now();
+                    const isTrialActive = tenant && String(tenant.subscriptionStatus).toUpperCase() === 'TRIAL' && trialEndsAt && trialEndsAt.getTime() > Date.now();
                     const effectivePlan = isTrialActive ? PlanTier.ENTERPRISE : (tenant ? tenant.plan : PlanTier.BASIC);
                     return `${PLANS[effectivePlan].name}${isTrialActive ? ' (TRIAL)' : ''}`;
                   })()}

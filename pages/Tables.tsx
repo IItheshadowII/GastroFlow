@@ -50,6 +50,20 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
 
   const [orderSearch, setOrderSearch] = useState('');
 
+  const upsertOrder = (order: Order) => {
+    setOrders(prev => {
+      const idx = prev.findIndex(o => o.id === order.id);
+      if (idx === -1) return [...prev, order];
+      const copy = [...prev];
+      copy[idx] = order;
+      return copy;
+    });
+  };
+
+  const removeOrderById = (orderId: string) => {
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+  };
+
   const parseItems = (raw: any): OrderItem[] => {
     if (Array.isArray(raw)) return raw as OrderItem[];
     if (typeof raw === 'string') {
@@ -409,10 +423,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
 
         // No marcar la mesa como ocupada todavía: se marcará cuando se agregue el primer ítem
         // Actualizar estado local y abrir directamente el modal de consumo
-        setOrders(prev => {
-          const others = prev.filter(o => o.id !== savedOrder.id);
-          return [...others, savedOrder];
-        });
+        upsertOrder(savedOrder);
         setActiveTable(editingTable);
         setActiveOrder(savedOrder);
         setIsModalOpen(false);
@@ -476,10 +487,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
           }
         }
         setActiveOrder(saved);
-        setOrders(prev => {
-          const others = prev.filter(o => o.id !== saved.id);
-          return [...others, saved];
-        });
+        upsertOrder(saved);
       } catch (err: any) {
         console.error(err);
         alert(err.message || 'No se pudo agregar el producto a la comanda.');
@@ -520,28 +528,37 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
       try {
         const remaining = activeOrder.items.filter(i => i.productId !== productId);
         const total = remaining.reduce((acc, i) => acc + i.price * i.quantity, 0);
-        const updated: Order = { ...activeOrder, items: remaining, total };
-        const saved = await saveOrderToApi(updated);
 
-        // Si la comanda quedó vacía, liberar la mesa en backend y limpiar estado local
-        if (!saved.items || saved.items.length === 0) {
+        // Si la comanda quedará vacía, eliminarla en backend en vez de dejar registro vacío
+        if (!remaining || remaining.length === 0) {
           try {
-            await fetch(`/api/tables/${activeTable.id}`, { method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify({ status: 'AVAILABLE' }) });
-          } catch (e) {
-            console.error('No se pudo actualizar el estado de la mesa a AVAILABLE', e);
-          }
+            const headers = getAuthHeaders();
+            const delRes = await fetch(`/api/orders/${activeOrder.id}`, { method: 'DELETE', headers });
+            if (!delRes.ok) {
+              const data = await delRes.json().catch(() => null);
+              throw new Error(data?.error || 'No se pudo eliminar la comanda en el servidor');
+            }
 
-          setOrders(prev => prev.filter(o => o.id !== saved.id));
-          setActiveOrder(null);
-          setIsOrderModalOpen(false);
-          setActiveTable(null);
-          await refreshData();
+            try {
+              await fetch(`/api/tables/${activeTable.id}`, { method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify({ status: 'AVAILABLE' }) });
+            } catch (e) {
+              console.error('No se pudo actualizar el estado de la mesa a AVAILABLE', e);
+            }
+
+            removeOrderById(activeOrder.id);
+            setActiveOrder(null);
+            setIsOrderModalOpen(false);
+            setActiveTable(null);
+            await refreshData();
+          } catch (err: any) {
+            console.error(err);
+            alert(err.message || 'No se pudo eliminar la comanda.');
+          }
         } else {
+          const updated: Order = { ...activeOrder, items: remaining, total };
+          const saved = await saveOrderToApi(updated);
           setActiveOrder(saved);
-          setOrders(prev => {
-            const others = prev.filter(o => o.id !== saved.id);
-            return [...others, saved];
-          });
+          upsertOrder(saved);
         }
       } catch (err: any) {
         console.error(err);
@@ -577,10 +594,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
         const updated: Order = { ...activeOrder, items };
         const saved = await saveOrderToApi(updated);
         setActiveOrder(saved);
-        setOrders(prev => {
-          const others = prev.filter(o => o.id !== saved.id);
-          return [...others, saved];
-        });
+        upsertOrder(saved);
         alert('Pedido enviado a cocina correctamente.');
       } catch (err: any) {
         console.error(err);
@@ -605,10 +619,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
         const updated: Order = { ...activeOrder, items };
         const saved = await saveOrderToApi(updated);
         setActiveOrder(saved);
-        setOrders(prev => {
-          const others = prev.filter(o => o.id !== saved.id);
-          return [...others, saved];
-        });
+        upsertOrder(saved);
         refreshData();
       } catch (err: any) {
         console.error(err);
@@ -651,7 +662,7 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
           body: JSON.stringify({ status: 'AVAILABLE' }),
         });
 
-        setOrders(prev => prev.filter(o => o.id !== saved.id));
+        removeOrderById(saved.id);
         setIsOrderModalOpen(false);
         setActiveOrder(null);
         setActiveTable(null);

@@ -9,6 +9,7 @@ import { CashierPage } from './pages/Cashier';
 import { KitchenPage } from './pages/Kitchen';
 import { ReportsPage } from './pages/Reports';
 import { db } from './services/db';
+import { startRealtime, stopRealtime } from './services/realtime';
 import { User, Tenant, SubscriptionStatus, PlanTier } from './types';
 import { LogIn, Key, Mail, Store, AlertTriangle, ShieldX, Building2, Users, CreditCard, Clock, ChevronDown, ChevronUp, Loader2, RefreshCw, X } from 'lucide-react';
 
@@ -1620,11 +1621,21 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    stopRealtime();
     setUser(null);
     setTenant(null);
     localStorage.removeItem('gastroflow_current_user');
     localStorage.removeItem('gastroflow_token');
   };
+
+  useEffect(() => {
+    if (!isCloud) return;
+    if (!user?.tenantId) return;
+    startRealtime({ tenantId: user.tenantId });
+    return () => {
+      stopRealtime();
+    };
+  }, [isCloud, user?.tenantId]);
 
   const handleAdminLogout = () => {
     setAdminUser(null);

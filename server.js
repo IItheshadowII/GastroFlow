@@ -1,11 +1,13 @@
 
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
+import { Server as SocketIOServer } from 'socket.io';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
@@ -17,6 +19,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// HTTP server (required for Socket.IO)
+const httpServer = http.createServer(app);
 
 const JWT_SECRET = process.env.JWT_SECRET || '';
 const GLOBAL_ADMIN_BOOTSTRAP_TOKEN = process.env.GLOBAL_ADMIN_BOOTSTRAP_TOKEN || '';
@@ -59,6 +64,60 @@ const sendEmail = async ({ to, subject, html, text }) => {
     text,
   });
 };
+
+// ==========================================
+// Realtime (Socket.IO)
+// ==========================================
+
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: true,
+    credentials: true,
+  },
+});
+
+const emitTenantEvent = (tenantId, type, payload) => {
+  if (!tenantId) return;
+  io.to(`tenant:${tenantId}`).emit('tenant:event', {
+    type,
+    payload,
+    ts: Date.now(),
+  });
+};
+
+const eventTypeForResource = (resource) => {
+  if (resource === 'orders') return 'orders.changed';
+  if (resource === 'tables') return 'tables.changed';
+  return `${resource}.changed`;
+};
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake?.auth?.token;
+    if (!token) return next(new Error('unauthorized'));
+
+    // In dev/local, JWT_SECRET may be empty.
+    if (!JWT_SECRET) {
+      socket.data.auth = { scope: 'tenant', tenantId: socket.handshake?.query?.tenantId };
+      return next();
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded || typeof decoded !== 'object') return next(new Error('unauthorized'));
+    if (decoded.scope !== 'tenant' || !decoded.tenantId) return next(new Error('unauthorized'));
+    socket.data.auth = decoded;
+    return next();
+  } catch (e) {
+    return next(new Error('unauthorized'));
+  }
+});
+
+io.on('connection', (socket) => {
+  const tenantId = socket.data?.auth?.tenantId || socket.handshake?.query?.tenantId;
+  if (tenantId) {
+    socket.join(`tenant:${tenantId}`);
+  }
+});
 
 const getBaseUrlForLinks = (req) => {
   if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL.replace(/\/$/, '');
@@ -1978,6 +2037,8 @@ app.post('/api/:resource', async (req, res) => {
   const { resource } = req.params;
   const data = req.body;
 
+  let emittedTenantId = undefined;
+
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
 
@@ -1993,6 +2054,7 @@ app.post('/api/:resource', async (req, res) => {
       const resolvedTenantId = resolveTenantIdForRequest(req);
       if (!resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
       data.tenant_id = resolvedTenantId;
+      emittedTenantId = resolvedTenantId;
       // No permitir crear roles/users fuera del ámbito usando la ruta genérica en modo enforce
       if (ENFORCE_AUTH && (resource === 'users' || resource === 'roles')) {
         return res.status(400).json({ error: 'Usa /api/tenants/:tenantId/users o /api/tenants/:tenantId/roles' });
@@ -2017,6 +2079,13 @@ app.post('/api/:resource', async (req, res) => {
 
     const query = `INSERT INTO ${resource} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`;
     const result = await pool.query(query, values);
+
+    if (emittedTenantId) {
+      emitTenantEvent(emittedTenantId, eventTypeForResource(resource), {
+        action: 'created',
+        id: result.rows[0]?.id,
+      });
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -2073,6 +2142,13 @@ app.put('/api/:resource/:id', async (req, res) => {
     const result = await pool.query(query, values);
 
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
+
+    if (tenantScoped && resolvedTenantId) {
+      emitTenantEvent(resolvedTenantId, eventTypeForResource(resource), {
+        action: 'updated',
+        id,
+      });
+    }
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -2084,6 +2160,12 @@ app.put('/api/:resource/:id', async (req, res) => {
 app.delete('/api/:resource/:id', async (req, res) => {
   const { resource, id } = req.params;
   const { tenantId } = req.query;
+
+  // We'll resolve tenant when possible and emit an event after a successful deletion.
+  const maybeEmit = (resolvedTenantId, action) => {
+    if (!resolvedTenantId) return;
+    emitTenantEvent(resolvedTenantId, eventTypeForResource(resource), { action, id });
+  };
 
   try {
     if (!isValidTable(resource)) return res.status(400).json({ error: 'Invalid resource' });
@@ -2114,6 +2196,10 @@ app.delete('/api/:resource/:id', async (req, res) => {
       const hasHistory = await pool.query(`SELECT 1 FROM orders WHERE table_id = $1 LIMIT 1`, [id]);
       if (hasHistory.rows.length > 0) {
         await pool.query(`UPDATE tables SET is_active = false WHERE id = $1`, [id]);
+        if (ENFORCE_AUTH) {
+          const resolvedTenantId = resolveTenantIdForRequest(req);
+          maybeEmit(resolvedTenantId, 'deleted');
+        }
         return res.json({ success: true, softDelete: true });
       }
     }
@@ -2133,6 +2219,10 @@ app.delete('/api/:resource/:id', async (req, res) => {
       const hasHistory = await pool.query(`SELECT 1 FROM order_items WHERE product_id = $1 LIMIT 1`, [id]);
       if (hasHistory.rows.length > 0) {
         await pool.query(`UPDATE products SET is_active = false WHERE id = $1`, [id]);
+        if (ENFORCE_AUTH) {
+          const resolvedTenantId = resolveTenantIdForRequest(req);
+          maybeEmit(resolvedTenantId, 'deleted');
+        }
         return res.json({ success: true, softDelete: true });
       }
     }
@@ -2169,6 +2259,10 @@ app.delete('/api/:resource/:id', async (req, res) => {
       }
       // Soft delete users
       await pool.query(`UPDATE users SET is_active = false WHERE id = $1`, [id]);
+      if (ENFORCE_AUTH) {
+        const resolvedTenantId = resolveTenantIdForRequest(req);
+        maybeEmit(resolvedTenantId, 'deleted');
+      }
       return res.json({ success: true, softDelete: true });
     }
 
@@ -2194,6 +2288,7 @@ app.delete('/api/:resource/:id', async (req, res) => {
       const resolvedTenantId = ENFORCE_AUTH ? resolveTenantIdForRequest(req) : (typeof tenantId === 'string' ? tenantId : undefined);
       if (!resolvedTenantId) return res.status(400).json({ error: 'tenantId requerido' });
       await pool.query(`DELETE FROM ${resource} WHERE id = $1 AND tenant_id = $2`, [id, resolvedTenantId]);
+      maybeEmit(resolvedTenantId, 'deleted');
       return res.json({ success: true });
     }
 
@@ -2313,6 +2408,6 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

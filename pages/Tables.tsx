@@ -73,6 +73,21 @@ export const TablesPage: React.FC<{ tenantId: string; user: User; tenant?: Tenan
     refreshData();
   }, [tenantId, isCloud]);
 
+  // Realtime refresh (cloud): si otro usuario del tenant cambia mesas/órdenes, refrescar sin F5.
+  useEffect(() => {
+    if (!isCloud) return;
+
+    const handler = (e: any) => {
+      const type = e?.detail?.type;
+      if (type === 'tables.changed' || type === 'orders.changed') {
+        refreshData();
+      }
+    };
+
+    window.addEventListener('tenant:event', handler);
+    return () => window.removeEventListener('tenant:event', handler);
+  }, [tenantId, isCloud]);
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('gastroflow_token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };

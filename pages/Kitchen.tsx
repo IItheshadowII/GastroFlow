@@ -28,13 +28,29 @@ export const KitchenPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({
 
   useEffect(() => {
     refreshData();
-    const dataInterval = setInterval(refreshData, 10000); // Refresh data cada 10s
+    // Fallback polling (si el realtime falla): refrescar cada 60s
+    const dataInterval = setInterval(refreshData, 60000);
     const timeInterval = setInterval(() => setNow(Date.now()), 1000); // Update cronómetro cada segundo
     return () => {
       clearInterval(dataInterval);
       clearInterval(timeInterval);
     };
   }, [tenantId]);
+
+  // Realtime refresh (cloud): si otro usuario actualiza órdenes/mesas, refrescar al instante.
+  useEffect(() => {
+    if (!isCloud) return;
+
+    const handler = (e: any) => {
+      const type = e?.detail?.type;
+      if (type === 'orders.changed' || type === 'tables.changed') {
+        refreshData();
+      }
+    };
+
+    window.addEventListener('tenant:event', handler);
+    return () => window.removeEventListener('tenant:event', handler);
+  }, [tenantId, isCloud]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('gastroflow_token');

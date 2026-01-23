@@ -15,6 +15,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/19sNy-kghHlTOctE7Hdq6Jg
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+2. Build the frontend:
+   `npm run build`
+3. Start the server (serves UI + API):
+   `npm start`
+
+La configuración de IA (Gemini) se gestiona desde el panel de **Admin Global** en `/admin` (botón **IA**). El tenant no puede configurarla.

@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { db } from '../services/db';
 import { Product, Category, AuditLog, User, Tenant } from '../types';
-import { GoogleGenAI, Type } from "@google/genai";
 
 interface ModalProps {
   isOpen: boolean;
@@ -300,26 +299,28 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
     const desc = productDescRef.current?.value;
     if (!name) return alert("Ingresa el nombre del producto.");
 
-    const tenant = db.getTenant(tenantId);
-    const apiKey = tenant?.settings?.geminiApiKey;
-    if (!apiKey) return alert("Configura la API Key de Gemini en Administrador.");
-
     setImgGenLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const prompt = `Genera una imagen profesional y apetitosa de estilo fotografía gastronómica para un producto llamado "${name}". Descripción: "${desc || 'Sin descripción'}". Fondo elegante de restaurante o bar.`;
-      
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: [{ parts: [{ text: prompt }] }],
-        config: { imageConfig: { aspectRatio: "1:1" } }
+      const token = localStorage.getItem('gastroflow_token');
+      const res = await fetch('/api/app/ai/generate-product-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ name, description: desc || '' }),
       });
 
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-          setGeneratedImageUrl(`data:image/png;base64,${part.inlineData.data}`);
-          break;
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error || 'Error al generar imagen (IA).');
+        return;
+      }
+
+      if (data?.imageDataUrl) {
+        setGeneratedImageUrl(String(data.imageDataUrl));
+      } else {
+        alert('La IA no devolvió imagen.');
       }
     } catch (err) {
       console.error(err);
@@ -331,53 +332,49 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
 
   const analyzeWithAi = async () => {
     if (!capturedImage) return;
-    const tenant = db.getTenant(tenantId);
-    const apiKey = tenant?.settings?.geminiApiKey;
-    const modelName = tenant?.settings?.geminiModel || 'gemini-3-flash-preview';
-    if (!apiKey) return alert("Configura la API Key de Gemini.");
 
     setAiLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const base64Data = capturedImage.split(',')[1];
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: {
-          parts: [
-            { inlineData: { data: base64Data, mimeType: 'image/jpeg' } },
-            { text: "Analiza esta imagen. Extrae: name, description, price (número), category. Formato JSON." }
-          ]
+      const token = localStorage.getItem('gastroflow_token');
+      const res = await fetch('/api/app/ai/analyze-product-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              description: { type: Type.STRING },
-              price: { type: Type.NUMBER },
-              category: { type: Type.STRING }
-            },
-            required: ["name", "description", "price", "category"]
-          }
-        }
+        body: JSON.stringify({ imageDataUrl: capturedImage, mimeType: 'image/jpeg' }),
       });
 
-      const result = JSON.parse(response.text || '{}');
-      let category = categories.find(c => c.name.toLowerCase() === result.category.toLowerCase());
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error || 'Error al analizar imagen (IA).');
+        return;
+      }
+
+      const result = data?.result || {};
+      const safeCategoryName = (typeof result.category === 'string' && result.category.trim())
+        ? result.category.trim()
+        : 'General';
+
+      let category = categories.find(c => c.name.toLowerCase() === safeCategoryName.toLowerCase());
       if (!category) {
         category = db.insert<Category>('categories', {
           id: `cat-ai-${Date.now()}`,
           tenantId,
-          name: result.category,
+          name: safeCategoryName,
           order: categories.length + 1
         });
       }
 
+      const safeName = (typeof result.name === 'string' && result.name.trim()) ? result.name.trim() : 'Producto';
+      const safeDescription = typeof result.description === 'string' ? result.description : '';
+      const priceNumber = typeof result.price === 'number' ? result.price : parseFloat(String(result.price ?? ''));
+      const safePrice = Number.isFinite(priceNumber) ? priceNumber : 0;
+
       setEditingItem({
-        name: result.name,
-        description: result.description,
-        price: result.price,
+        name: safeName,
+        description: safeDescription,
+        price: safePrice,
         categoryId: category.id,
         stockEnabled: true,
         stockQuantity: 0,
@@ -390,7 +387,7 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
       setCapturedImage(null);
     } catch (err) {
       console.error(err);
-      alert("Error con Gemini.");
+      alert("Error al analizar imagen.");
     } finally {
       setAiLoading(false);
     }

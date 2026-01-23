@@ -1043,6 +1043,92 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
   const [deleteModal, setDeleteModal] = useState<{ tenantId: string; tenantName: string } | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiHasKey, setAiHasKey] = useState(false);
+  const [aiGeminiModel, setAiGeminiModel] = useState('gemini-3-flash-preview');
+  const [aiImageModel, setAiImageModel] = useState('gemini-2.5-flash-image');
+  const [aiApiKey, setAiApiKey] = useState('');
+
+  const fetchAiSettings = async () => {
+    setAiLoading(true);
+    try {
+      const token = localStorage.getItem('gastroflow_admin_token');
+      const res = await fetch('/api/admin/ai-settings', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error || 'No se pudo cargar configuración IA');
+      setAiHasKey(Boolean(d?.hasApiKey));
+      setAiGeminiModel(String(d?.geminiModel || 'gemini-3-flash-preview'));
+      setAiImageModel(String(d?.imageModel || 'gemini-2.5-flash-image'));
+      setAiApiKey('');
+    } catch (e) {
+      console.error('Error fetching AI settings:', e);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const openAiModal = async () => {
+    setAiModalOpen(true);
+    await fetchAiSettings();
+  };
+
+  const saveAiSettings = async () => {
+    setAiLoading(true);
+    try {
+      const token = localStorage.getItem('gastroflow_admin_token');
+      const res = await fetch('/api/admin/ai-settings', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          geminiApiKey: aiApiKey ? aiApiKey : undefined,
+          geminiModel: aiGeminiModel,
+          imageModel: aiImageModel,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error || 'No se pudo guardar configuración IA');
+      await fetchAiSettings();
+      alert('Configuración IA guardada.');
+    } catch (e: any) {
+      console.error('Error saving AI settings:', e);
+      alert(e?.message || 'Error guardando configuración IA');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const clearAiApiKey = async () => {
+    const ok = confirm('¿Seguro que querés eliminar la API key de Gemini? La IA dejará de funcionar hasta volver a configurarla.');
+    if (!ok) return;
+    setAiLoading(true);
+    try {
+      const token = localStorage.getItem('gastroflow_admin_token');
+      const res = await fetch('/api/admin/ai-settings', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ geminiApiKey: null, geminiModel: aiGeminiModel, imageModel: aiImageModel }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error || 'No se pudo limpiar la API key');
+      await fetchAiSettings();
+      alert('API key eliminada.');
+    } catch (e: any) {
+      console.error('Error clearing AI key:', e);
+      alert(e?.message || 'Error eliminando API key');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const fetchDashboard = async () => {
     setLoading(true);
     try {
@@ -1184,6 +1270,9 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
           <div className="flex gap-3">
             <button onClick={fetchDashboard} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors">
               <RefreshCw size={18} />
+            </button>
+            <button onClick={openAiModal} className="px-5 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold transition-colors">
+              IA
             </button>
             <button onClick={onLogout} className="px-5 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold transition-colors">
               Salir
@@ -1491,6 +1580,85 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
                     className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {actionLoading ? <Loader2 className="animate-spin mx-auto" size={18} /> : 'Eliminar Permanentemente'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Settings Modal */}
+        {aiModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+              <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+                <h3 className="text-lg font-black">Configuración IA (Global)</h3>
+                <button onClick={() => setAiModalOpen(false)} className="p-2 hover:bg-slate-800 rounded-xl">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="p-4 bg-slate-800/40 border border-slate-700/50 rounded-xl text-sm text-slate-300">
+                  <p className="font-bold text-white">Estado:</p>
+                  <p>{aiHasKey ? '✅ API Key configurada' : '⚠️ Falta configurar API Key'}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-slate-400 font-bold">Gemini API Key (backend)</label>
+                  <input
+                    type="password"
+                    value={aiApiKey}
+                    onChange={(e) => setAiApiKey(e.target.value)}
+                    placeholder={aiHasKey ? '•••••••• (dejar vacío para no cambiar)' : 'Pegá la API key acá'}
+                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm text-slate-400 font-bold">Modelo (análisis)</label>
+                    <input
+                      type="text"
+                      value={aiGeminiModel}
+                      onChange={(e) => setAiGeminiModel(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                      placeholder="gemini-3-flash-preview"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-slate-400 font-bold">Modelo (imágenes)</label>
+                    <input
+                      type="text"
+                      value={aiImageModel}
+                      onChange={(e) => setAiImageModel(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                      placeholder="gemini-2.5-flash-image"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setAiModalOpen(false)}
+                    className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-colors"
+                  >
+                    Cerrar
+                  </button>
+                  {aiHasKey && (
+                    <button
+                      onClick={clearAiApiKey}
+                      disabled={aiLoading}
+                      className="flex-1 px-4 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-300 rounded-xl font-bold transition-colors disabled:opacity-50"
+                    >
+                      Limpiar Key
+                    </button>
+                  )}
+                  <button
+                    onClick={saveAiSettings}
+                    disabled={aiLoading}
+                    className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition-colors disabled:opacity-50"
+                  >
+                    {aiLoading ? <Loader2 className="animate-spin mx-auto" size={18} /> : 'Guardar'}
                   </button>
                 </div>
               </div>

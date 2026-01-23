@@ -583,7 +583,7 @@ class DBService {
         plan: PlanTier.PRO,
         subscriptionStatus: SubscriptionStatus.ACTIVE,
         createdAt: new Date().toISOString(),
-        settings: { geminiModel: 'gemini-3-flash-preview' }
+        settings: {}
       };
 
       const roles: Role[] = DEFAULT_ROLES.map(r => ({ ...r, tenantId: demoTenantId }));

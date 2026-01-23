@@ -40,7 +40,7 @@ export const PERMISSION_GROUPS = [
       { id: 'users.view', label: 'Ver Equipo', description: 'Ver lista de usuarios y sus estados.' },
       { id: 'users.manage', label: 'Gestionar Personal', description: 'Invitar, editar o dar de baja usuarios.' },
       { id: 'roles.manage', label: 'Control de Roles', description: 'Crear y editar permisos de los roles.' },
-      { id: 'settings.manage', label: 'Configuración IA/API', description: 'Configurar Gemini API y ajustes del local.' },
+      { id: 'settings.manage', label: 'Configuración', description: 'Ajustes del local (no incluye IA global).' },
       { id: 'billing.manage', label: 'Gestión de Suscripción', description: 'Acceso a pagos y cambio de plan.' },
     ]
   }

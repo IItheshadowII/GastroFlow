@@ -191,7 +191,10 @@ VITE_API_URL=https://api.tudominio.com
 DATABASE_URL=postgresql://user:pass@host:5432/gastroflow
 JWT_SECRET=super_secret_key_production
 MP_ACCESS_TOKEN=APP_USR-xxxxxx-xxxxxx (Mercado Pago Production Token)
-GEMINI_API_KEY=AIzaSy... (Google AI Key)
+
+# IA (Gemini)
+# La API key y modelos se configuran desde el panel de Admin Global (/admin) y se guardan en DB.
+# No se expone la key al frontend.
 
 ### SMTP (notificaciones + recuperación de contraseña)
 

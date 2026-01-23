@@ -14,8 +14,7 @@ export enum PlanTier {
 }
 
 export interface TenantSettings {
-  geminiApiKey?: string;
-  geminiModel?: string;
+  // Reservado para settings tenant-scoped.
 }
 
 export interface Tenant {

@@ -438,25 +438,6 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
     }, 400);
   };
 
-  const handleSaveAiSettings = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    const formData = new FormData(e.currentTarget);
-    
-    const settings = {
-      geminiApiKey: formData.get('apiKey') as string,
-      geminiModel: formData.get('model') as string,
-    };
-
-    db.updateTenantSettings(tenantId, settings);
-
-    setTimeout(() => {
-      refreshData();
-      setLoading(false);
-      alert("Configuración de IA guardada exitosamente.");
-    }, 500);
-  };
-
   const getRoleIcon = (roleName: string) => {
     if (roleName === 'Administrador') return <Shield size={24} />;
     if (roleName === 'Encargado') return <UserCheck size={24} />;
@@ -478,12 +459,6 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
           className={`px-8 py-5 font-black text-xs uppercase tracking-widest transition-all border-b-4 ${activeTab === 'roles' ? 'border-purple-600 text-purple-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
         >
           Roles & Permisos
-        </button>
-        <button 
-          onClick={() => setActiveTab('ai')}
-          className={`px-8 py-5 font-black text-xs uppercase tracking-widest transition-all border-b-4 ${activeTab === 'ai' ? 'border-emerald-600 text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
-        >
-          IA & API Config
         </button>
       </div>
 
@@ -640,61 +615,6 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* AI & Config Tab */}
-      {activeTab === 'ai' && (
-        <div className="max-w-3xl space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-           <div className="bg-gradient-to-br from-purple-900/40 to-blue-900/20 border border-purple-500/30 p-10 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
-              <div className="relative z-10">
-                 <div className="flex items-center gap-4 mb-8">
-                    <div className="w-20 h-20 bg-emerald-600/20 text-emerald-400 rounded-3xl flex items-center justify-center border border-emerald-500/30 shadow-xl shadow-emerald-500/10">
-                       <Sparkles size={36} />
-                    </div>
-                    <div>
-                       <h3 className="text-3xl font-black text-slate-100 italic tracking-tight">Google Gemini Engine</h3>
-                       <p className="text-slate-400 text-sm">Configuración avanzada de inteligencia artificial para tu local.</p>
-                    </div>
-                 </div>
-
-                 <form onSubmit={handleSaveAiSettings} className="space-y-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                       <div className="space-y-3">
-                          <label className="text-xs font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-2">
-                             <Key size={14} /> Gemini API Key
-                          </label>
-                          <input 
-                            name="apiKey" 
-                            type="password"
-                            defaultValue={tenant?.settings?.geminiApiKey}
-                            className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-4 px-6 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/50 transition-all font-mono"
-                            placeholder="sk-..."
-                          />
-                       </div>
-                       <div className="space-y-3">
-                          <label className="text-xs font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-2">
-                             <Cpu size={14} /> Engine Model
-                          </label>
-                          <select 
-                            name="model"
-                            defaultValue={tenant?.settings?.geminiModel || 'gemini-3-flash-preview'}
-                            className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-2xl py-4 px-6 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500/50 transition-all appearance-none cursor-pointer"
-                          >
-                             <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast)</option>
-                             <option value="gemini-3-pro-preview">Gemini 3 Pro (High Precision)</option>
-                             <option value="gemini-flash-latest">Gemini Flash (Stable)</option>
-                          </select>
-                       </div>
-                    </div>
-
-                    <button type="submit" className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-lg shadow-xl shadow-emerald-900/40 transition-all active:scale-95 flex items-center justify-center gap-3">
-                      {loading ? <Loader2 size={24} className="animate-spin" /> : <Settings2 size={24} />}
-                      Guardar Parametrización IA
-                    </button>
-                 </form>
-              </div>
-           </div>
         </div>
       )}
 

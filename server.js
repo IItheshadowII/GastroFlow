@@ -11,6 +11,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
@@ -294,6 +295,21 @@ const ensureSchema = async () => {
       );
     `);
 
+    // Config global de IA (singleton)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS global_ai_settings (
+        id INT PRIMARY KEY,
+        gemini_api_key TEXT,
+        gemini_model VARCHAR(100),
+        image_model VARCHAR(100),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+
+      INSERT INTO global_ai_settings (id, gemini_model, image_model)
+      VALUES (1, 'gemini-3-flash-preview', 'gemini-2.5-flash-image')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
     // Roles / Users: asegurar columnas y constraints
     await client.query(`
       ALTER TABLE roles
@@ -440,6 +456,21 @@ const ensureSchema = async () => {
   } finally {
     client.release();
   }
+};
+
+const getGlobalAiSettings = async () => {
+  const r = await pool.query(
+    `SELECT gemini_api_key, gemini_model, image_model
+     FROM global_ai_settings
+     WHERE id = 1
+     LIMIT 1`
+  );
+  const row = r.rows[0] || {};
+  return {
+    geminiApiKey: row.gemini_api_key || null,
+    geminiModel: row.gemini_model || 'gemini-3-flash-preview',
+    imageModel: row.image_model || 'gemini-2.5-flash-image',
+  };
 };
 
 const hashPassword = async (plain) => {
@@ -709,6 +740,63 @@ app.get('/api/admin/me', requireGlobalAdmin, async (req, res) => {
     return res.json({ scope: 'global', user: r.rows[0] || null });
   } catch (error) {
     console.error('admin me error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
+// ============ ADMIN: Global AI Settings ============
+app.get('/api/admin/ai-settings', requireGlobalAdmin, async (_req, res) => {
+  try {
+    const s = await getGlobalAiSettings();
+    return res.json({
+      ok: true,
+      hasApiKey: Boolean(s.geminiApiKey),
+      geminiModel: s.geminiModel,
+      imageModel: s.imageModel,
+    });
+  } catch (error) {
+    console.error('admin ai-settings get error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
+app.put('/api/admin/ai-settings', requireGlobalAdmin, async (req, res) => {
+  try {
+    const { geminiApiKey, geminiModel, imageModel } = req.body || {};
+
+    const nextGeminiModel = typeof geminiModel === 'string' && geminiModel.trim() ? geminiModel.trim() : 'gemini-3-flash-preview';
+    const nextImageModel = typeof imageModel === 'string' && imageModel.trim() ? imageModel.trim() : 'gemini-2.5-flash-image';
+
+    const apiKeyProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'geminiApiKey');
+    const apiKeyValue = geminiApiKey === null ? null : (typeof geminiApiKey === 'string' ? geminiApiKey.trim() : undefined);
+
+    if (apiKeyProvided && apiKeyValue !== undefined && apiKeyValue !== null && !apiKeyValue) {
+      // string vacío => no actualizar key
+      await pool.query(
+        `UPDATE global_ai_settings
+         SET gemini_model = $1, image_model = $2, updated_at = NOW()
+         WHERE id = 1`,
+        [nextGeminiModel, nextImageModel]
+      );
+    } else if (apiKeyProvided && apiKeyValue !== undefined) {
+      await pool.query(
+        `UPDATE global_ai_settings
+         SET gemini_api_key = $1, gemini_model = $2, image_model = $3, updated_at = NOW()
+         WHERE id = 1`,
+        [apiKeyValue, nextGeminiModel, nextImageModel]
+      );
+    } else {
+      await pool.query(
+        `UPDATE global_ai_settings
+         SET gemini_model = $1, image_model = $2, updated_at = NOW()
+         WHERE id = 1`,
+        [nextGeminiModel, nextImageModel]
+      );
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('admin ai-settings put error:', error);
     return res.status(500).json({ error: 'failed' });
   }
 });
@@ -1101,6 +1189,78 @@ app.get('/api/app/me', requireTenantUser, async (req, res) => {
   } catch (error) {
     console.error('app me error:', error);
     return res.status(500).json({ error: 'failed' });
+  }
+});
+
+// ============ APP: AI endpoints (usa config global, no tenant) ============
+app.post('/api/app/ai/generate-product-image', requireTenantUser, requirePermission('menu.edit'), async (req, res) => {
+  try {
+    const { name, description } = req.body || {};
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name requerido' });
+
+    const s = await getGlobalAiSettings();
+    if (!s.geminiApiKey) return res.status(503).json({ error: 'IA no configurada. Contactá al admin global.' });
+
+    const ai = new GoogleGenAI({ apiKey: s.geminiApiKey });
+    const prompt = `Genera una imagen profesional y apetitosa de estilo fotografía gastronómica para un producto llamado "${name}". Descripción: "${typeof description === 'string' && description ? description : 'Sin descripción'}". Fondo elegante de restaurante o bar.`;
+
+    const response = await ai.models.generateContent({
+      model: s.imageModel || 'gemini-2.5-flash-image',
+      contents: [{ parts: [{ text: prompt }] }],
+      config: { imageConfig: { aspectRatio: '1:1' } },
+    });
+
+    const parts = response?.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part?.inlineData?.data) {
+        return res.json({ ok: true, imageDataUrl: `data:image/png;base64,${part.inlineData.data}` });
+      }
+    }
+
+    return res.status(502).json({ error: 'La IA no devolvió imagen' });
+  } catch (error) {
+    console.error('generate-product-image error:', error);
+    return res.status(500).json({ error: 'Error al generar imagen' });
+  }
+});
+
+app.post('/api/app/ai/analyze-product-image', requireTenantUser, requirePermission('menu.edit'), async (req, res) => {
+  try {
+    const { imageDataUrl, mimeType } = req.body || {};
+    if (!imageDataUrl || typeof imageDataUrl !== 'string') return res.status(400).json({ error: 'imageDataUrl requerido' });
+
+    const s = await getGlobalAiSettings();
+    if (!s.geminiApiKey) return res.status(503).json({ error: 'IA no configurada. Contactá al admin global.' });
+
+    const inferredMime = typeof mimeType === 'string' && mimeType ? mimeType : 'image/jpeg';
+    const base64 = imageDataUrl.includes(',') ? imageDataUrl.split(',')[1] : imageDataUrl;
+    if (!base64) return res.status(400).json({ error: 'imagen inválida' });
+
+    const ai = new GoogleGenAI({ apiKey: s.geminiApiKey });
+    const prompt = 'Analiza esta imagen. Extrae: name, description, price (número), category. Respondé SOLO JSON con esas keys.';
+
+    const response = await ai.models.generateContent({
+      model: s.geminiModel || 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { data: base64, mimeType: inferredMime } },
+          { text: prompt },
+        ],
+      },
+      config: { responseMimeType: 'application/json' },
+    });
+
+    let result = {};
+    try {
+      result = JSON.parse(response?.text || '{}');
+    } catch {
+      result = {};
+    }
+
+    return res.json({ ok: true, result });
+  } catch (error) {
+    console.error('analyze-product-image error:', error);
+    return res.status(500).json({ error: 'Error al analizar imagen' });
   }
 });
 

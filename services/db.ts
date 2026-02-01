@@ -8,7 +8,7 @@ const env = (import.meta as any).env || {};
 // AUTO: detecta CLOUD si se pasa VITE_API_URL, o usar VITE_APP_MODE explícito
 const APP_MODE = env.VITE_APP_MODE || (env.VITE_API_URL ? 'CLOUD' : 'LOCAL'); // 'LOCAL' or 'CLOUD'
 const API_URL = env.VITE_API_URL || ''; // URL del backend en modo Cloud
-const CLOUD_URL = env.VITE_CLOUD_URL || 'https://app.gastroflow.cloud'; // URL para verificar licencia en modo Local
+const CLOUD_URL = env.VITE_CLOUD_URL || 'https://app.restoflux.cloud'; // URL para verificar licencia en modo Local
 const LICENSE_KEY = env.VITE_LICENSE_KEY || '';
 const LICENSE_CHECK_INTERVAL_DAYS = parseInt(env.VITE_LICENSE_CHECK_INTERVAL_DAYS || '1', 10);
 const LICENSE_GRACE_DAYS = parseInt(env.VITE_LICENSE_GRACE_DAYS || '7', 10);
@@ -25,7 +25,7 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('gastroflow_token');
+    const token = localStorage.getItem('restoflux_token');
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers: {
@@ -104,12 +104,12 @@ class DBService {
   // ==========================================
 
   private getLocalData<T>(key: string): T[] {
-    const data = localStorage.getItem(`gastroflow_${key}`);
+    const data = localStorage.getItem(`restoflux_${key}`);
     return data ? JSON.parse(data) : [];
   }
 
   private setLocalData<T>(key: string, data: T[]): void {
-    localStorage.setItem(`gastroflow_${key}`, JSON.stringify(data));
+    localStorage.setItem(`restoflux_${key}`, JSON.stringify(data));
   }
 
   /**
@@ -238,8 +238,8 @@ class DBService {
   async validateSubscription(tenantId: string): Promise<boolean> {
     if (APP_MODE === 'CLOUD') return true;
 
-    const cacheKey = `gastroflow_license_cache_${tenantId}`;
-    const lastCheckKey = `gastroflow_last_license_check_${tenantId}`;
+    const cacheKey = `restoflux_license_cache_${tenantId}`;
+    const lastCheckKey = `restoflux_last_license_check_${tenantId}`;
 
     // Usar cache si la comprobación reciente está dentro del intervalo configurado
     try {
@@ -590,7 +590,7 @@ class DBService {
     // Si estamos en modo LOCAL, inicializamos defaults de localStorage
     const tenants = this.getLocalData<Tenant>('tenants');
 
-    if (!localStorage.getItem('gastroflow_tenants')) {
+    if (!localStorage.getItem('restoflux_tenants')) {
       const generateUuidV4 = () => {
         // Preferir crypto.randomUUID si está disponible
         const cryptoObj: any = (globalThis as any).crypto;

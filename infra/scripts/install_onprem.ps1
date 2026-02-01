@@ -83,7 +83,7 @@ if (-not $pgContainer) { Write-Host "No se encontró contenedor Postgres basado 
 else {
   $tries = 0
   while ($tries -lt 60) {
-    $res = & docker exec $pgContainer pg_isready -U gastroflow 2>$null
+    $res = & docker exec $pgContainer pg_isready -U restoflux 2>$null
     if ($LASTEXITCODE -eq 0) { break }
     Start-Sleep -Seconds 2
     $tries++
@@ -97,7 +97,7 @@ else {
     Write-Host "Aplicando migraciones desde db/init.sql..." -ForegroundColor Cyan
     try {
       & docker cp "$initSql" "$pgContainer:/tmp/init.sql"
-      & docker exec -i $pgContainer psql -U gastroflow -d gastroflow -f /tmp/init.sql
+      & docker exec -i $pgContainer psql -U restoflux -d restoflux -f /tmp/init.sql
       Write-Host "Migraciones aplicadas." -ForegroundColor Green
     } catch {
       Write-Host "Error aplicando migraciones: $_" -ForegroundColor Yellow

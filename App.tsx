@@ -47,8 +47,8 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
       });
       const adminData = await adminRes.json().catch(() => ({}));
       if (adminRes.ok && adminData?.ok && adminData?.token && adminData?.user) {
-        localStorage.setItem('gastroflow_admin_token', adminData.token);
-        localStorage.setItem('gastroflow_admin_user', JSON.stringify(adminData.user));
+        localStorage.setItem('restoflux_admin_token', adminData.token);
+        localStorage.setItem('restoflux_admin_user', JSON.stringify(adminData.user));
         window.location.href = '/admin';
         return true;
       }
@@ -104,8 +104,8 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
           return;
         }
 
-        localStorage.setItem('gastroflow_token', data.token);
-        localStorage.setItem('gastroflow_last_tenant_id', data.user.tenantId);
+        localStorage.setItem('restoflux_token', data.token);
+        localStorage.setItem('restoflux_last_tenant_id', data.user.tenantId);
 
         const u: User = {
           id: data.user.id,
@@ -141,7 +141,7 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
       <div className="w-full max-w-md">
         <div className="text-center mb-10 space-y-4">
           <div className="mx-auto w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center text-3xl font-bold italic shadow-2xl shadow-blue-500/20">G</div>
-          <h1 className="text-4xl font-black tracking-tight text-white italic">GastroFlow</h1>
+          <h1 className="text-4xl font-black tracking-tight text-white italic">RestoFlux</h1>
           <p className="text-slate-400">Panel de control multi-tenant</p>
         </div>
 
@@ -240,7 +240,7 @@ const TenantLoginPage = ({ onLogin, isCloud }: { onLogin: (u: User) => void; isC
         </div>
 
         <p className="text-center mt-8 text-slate-500 text-xs">
-          © 2024 GastroFlow SaaS. Versión 2.1.0-beta
+          © 2024 RestoFlux SaaS. Versión 2.1.0-beta
         </p>
       </div>
     </div>
@@ -268,8 +268,8 @@ const AdminLoginPage = ({ onLogin }: { onLogin: (u: { id: string; email: string;
         setError(data?.error || 'Credenciales inválidas');
         return;
       }
-      localStorage.setItem('gastroflow_admin_token', data.token);
-      localStorage.setItem('gastroflow_admin_user', JSON.stringify(data.user));
+      localStorage.setItem('restoflux_admin_token', data.token);
+      localStorage.setItem('restoflux_admin_user', JSON.stringify(data.user));
       onLogin(data.user);
     } catch (err: any) {
       console.error('Admin login error:', err);
@@ -284,7 +284,7 @@ const AdminLoginPage = ({ onLogin }: { onLogin: (u: { id: string; email: string;
       <div className="w-full max-w-md">
         <div className="text-center mb-10 space-y-4">
           <div className="mx-auto w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-600 rounded-2xl flex items-center justify-center text-3xl font-bold italic shadow-2xl shadow-purple-500/20">G</div>
-          <h1 className="text-4xl font-black tracking-tight text-white italic">GastroFlow</h1>
+          <h1 className="text-4xl font-black tracking-tight text-white italic">RestoFlux</h1>
           <p className="text-slate-400">Admin de Plataforma (owner)</p>
         </div>
 
@@ -655,8 +655,8 @@ const AppRegisterPage = ({ isCloud, onLogin }: { isCloud: boolean; onLogin: (u: 
         setError(data?.error || 'No se pudo registrar');
         return;
       }
-      localStorage.setItem('gastroflow_token', data.token);
-      localStorage.setItem('gastroflow_last_tenant_id', data.user.tenantId);
+      localStorage.setItem('restoflux_token', data.token);
+      localStorage.setItem('restoflux_last_tenant_id', data.user.tenantId);
 
       const u: User = {
         id: data.user.id,
@@ -667,7 +667,7 @@ const AppRegisterPage = ({ isCloud, onLogin }: { isCloud: boolean; onLogin: (u: 
         isActive: true,
         permissions: Array.isArray(data.user.permissions) ? data.user.permissions : []
       };
-      localStorage.setItem('gastroflow_current_user', JSON.stringify(u));
+      localStorage.setItem('restoflux_current_user', JSON.stringify(u));
 
       window.history.replaceState({}, document.title, '/app');
       onLogin(u);
@@ -1054,7 +1054,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
   const fetchAiSettings = async () => {
     setAiLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const res = await fetch('/api/admin/ai-settings', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1079,7 +1079,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
   const saveAiSettings = async () => {
     setAiLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const res = await fetch('/api/admin/ai-settings', {
         method: 'PUT',
         headers: {
@@ -1109,7 +1109,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
     if (!ok) return;
     setAiLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const res = await fetch('/api/admin/ai-settings', {
         method: 'PUT',
         headers: {
@@ -1133,7 +1133,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
   const fetchDashboard = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const res = await fetch('/api/admin/dashboard', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1154,7 +1154,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
     setExpandedTenant(tenantId);
     setLoadingDetail(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const res = await fetch(`/api/admin/tenants/${tenantId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1170,7 +1170,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
     if (!trialModal) return;
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const body = trialAction === 'set' 
         ? { action: 'set', days: trialDate }
         : { action: trialAction, days: parseInt(trialDays, 10) };
@@ -1209,7 +1209,7 @@ const AdminDashboardPage: React.FC<{ onLogout: () => void }> = ({ onLogout }) =>
     
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_admin_token');
+      const token = localStorage.getItem('restoflux_admin_token');
       const res = await fetch(`/api/admin/tenants/${deleteModal.tenantId}`, {
         method: 'DELETE',
         headers: {
@@ -1690,7 +1690,7 @@ const App: React.FC = () => {
 
   const fetchTenantFromApi = async (tenantId: string): Promise<Tenant | null> => {
     try {
-      const token = localStorage.getItem('gastroflow_token');
+      const token = localStorage.getItem('restoflux_token');
       const res = await fetch(`/api/app/tenants/${tenantId}`, {
         headers: {
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -1706,7 +1706,7 @@ const App: React.FC = () => {
 
   const fetchMeFromApi = async (): Promise<User | null> => {
     try {
-      const token = localStorage.getItem('gastroflow_token');
+      const token = localStorage.getItem('restoflux_token');
       if (!token) return null;
       const res = await fetch('/api/app/me', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -1738,31 +1738,31 @@ const App: React.FC = () => {
     }
 
     if (area === 'admin') {
-      const storedAdmin = localStorage.getItem('gastroflow_admin_user');
+      const storedAdmin = localStorage.getItem('restoflux_admin_user');
       if (storedAdmin) {
         try {
           setAdminUser(JSON.parse(storedAdmin));
         } catch {
-          localStorage.removeItem('gastroflow_admin_user');
+          localStorage.removeItem('restoflux_admin_user');
         }
       }
       return;
     }
 
-    const stored = localStorage.getItem('gastroflow_current_user');
+    const stored = localStorage.getItem('restoflux_current_user');
 
     if (isCloud) {
       // En cloud, la fuente de verdad es el token. Si existe, refrescamos /me.
       fetchMeFromApi().then((me) => {
         if (me) {
           setUser(me);
-          localStorage.setItem('gastroflow_current_user', JSON.stringify(me));
+          localStorage.setItem('restoflux_current_user', JSON.stringify(me));
           fetchTenantFromApi(me.tenantId).then((t) => setTenant(t || null));
         } else if (stored) {
           // Fallback (por compat): si hay user pero token inválido/ausente, forzar re-login
           setUser(null);
           setTenant(null);
-          localStorage.removeItem('gastroflow_current_user');
+          localStorage.removeItem('restoflux_current_user');
         }
       });
     } else if (stored) {
@@ -1781,7 +1781,7 @@ const App: React.FC = () => {
 
   const handleLogin = (u: User) => {
     setUser(u);
-    localStorage.setItem('gastroflow_current_user', JSON.stringify(u));
+    localStorage.setItem('restoflux_current_user', JSON.stringify(u));
     if (isCloud) {
       fetchTenantFromApi(u.tenantId).then((t) => setTenant(t || db.getTenant(u.tenantId) || null));
     } else {
@@ -1793,8 +1793,8 @@ const App: React.FC = () => {
     stopRealtime();
     setUser(null);
     setTenant(null);
-    localStorage.removeItem('gastroflow_current_user');
-    localStorage.removeItem('gastroflow_token');
+    localStorage.removeItem('restoflux_current_user');
+    localStorage.removeItem('restoflux_token');
   };
 
   useEffect(() => {
@@ -1808,8 +1808,8 @@ const App: React.FC = () => {
 
   const handleAdminLogout = () => {
     setAdminUser(null);
-    localStorage.removeItem('gastroflow_admin_user');
-    localStorage.removeItem('gastroflow_admin_token');
+    localStorage.removeItem('restoflux_admin_user');
+    localStorage.removeItem('restoflux_admin_token');
   };
 
   const refreshTenantData = () => {

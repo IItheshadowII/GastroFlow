@@ -156,7 +156,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, tenant, onLogout
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center font-black text-white italic shadow-lg shadow-blue-500/20">G</div>
               <div className="flex flex-col">
-                <span className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-100 to-blue-400 italic">GastroFlow</span>
+                <span className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-100 to-blue-400 italic">RestoFlux</span>
                 {tenant?.name && (
                   <span className="text-[11px] font-semibold text-slate-400 leading-tight truncate">
                     {tenant.name}

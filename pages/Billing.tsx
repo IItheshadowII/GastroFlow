@@ -59,7 +59,7 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(localStorage.getItem('gastroflow_token') ? { 'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}` } : {}),
+            ...(localStorage.getItem('restoflux_token') ? { 'Authorization': `Bearer ${localStorage.getItem('restoflux_token')}` } : {}),
           },
           body: JSON.stringify({
             tenantId: tenantIdFromQuery || tenant.id,
@@ -109,7 +109,7 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(localStorage.getItem('gastroflow_token') ? { 'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}` } : {}),
+            ...(localStorage.getItem('restoflux_token') ? { 'Authorization': `Bearer ${localStorage.getItem('restoflux_token')}` } : {}),
           },
           body: JSON.stringify({
             tenantId: tenant.id,
@@ -373,7 +373,7 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
                   <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 space-y-4">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Producto</span>
-                      <span className="text-slate-200 font-black italic">GastroFlow {showCheckout.name}</span>
+                      <span className="text-slate-200 font-black italic">RestoFlux {showCheckout.name}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Recurrencia</span>
@@ -413,7 +413,7 @@ export const BillingPage: React.FC<{ tenant: Tenant, user: User, onUpdate: (t: T
                   </div>
                   <div>
                     <h4 className="text-3xl font-black text-emerald-400 italic">¡Pago Exitoso!</h4>
-                    <p className="text-slate-300 mt-2">Tu plan se ha actualizado correctamente. Bienvenido a <b>GastroFlow {showCheckout.name}</b>.</p>
+                    <p className="text-slate-300 mt-2">Tu plan se ha actualizado correctamente. Bienvenido a <b>RestoFlux {showCheckout.name}</b>.</p>
                   </div>
 
                   {reconciliationNotice && (

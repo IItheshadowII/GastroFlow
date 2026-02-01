@@ -1,5 +1,5 @@
 -- ====================================
--- GastroFlow SaaS - Schema PostgreSQL
+-- RestoFlux SaaS - Schema PostgreSQL
 -- Ejecutar en EasyPanel > PostgreSQL > Terminal
 -- ====================================
 

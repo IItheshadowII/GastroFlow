@@ -1,5 +1,5 @@
 
-# GastroFlow Infrastructure & Deployment
+# RestoFlux Infrastructure & Deployment
 
 ## 1. Local Infrastructure (Docker Compose)
 
@@ -11,7 +11,7 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: gastroflow
+      POSTGRES_DB: restoflux
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password123
     ports:
@@ -22,7 +22,7 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql://admin:password123@db:5432/gastroflow
+      DATABASE_URL: postgresql://restoflux:restoflux@db:5432/restoflux
       JWT_SECRET: your_ultra_secret_key
       MP_ACCESS_TOKEN: your_mercadopago_token
     ports:
@@ -44,7 +44,7 @@ services:
 1. Containerize the Express/Node app using a `Dockerfile`.
 2. Deploy to Cloud Run:
    ```bash
-   gcloud run deploy gastroflow-api --image gcr.io/project/api --platform managed
+  gcloud run deploy restoflux-api --image gcr.io/project/api --platform managed
    ```
 3. Set Env Vars: `DATABASE_URL`, `JWT_SECRET`, `MP_WEBHOOK_SECRET`.
 
@@ -53,7 +53,7 @@ services:
 - Run migrations: `npx prisma migrate deploy`.
 
 ### Mercado Pago Webhooks
-1. Configure your endpoint in MP Dashboard: `https://api.gastroflow.com/v1/webhooks/mercadopago`.
+1. Configure your endpoint in MP Dashboard: `https://api.restoflux.com/v1/webhooks/mercadopago`.
 2. Secure the endpoint verifying the IP and token.
 
 ## 3. RBAC & Multi-tenant isolation
@@ -85,7 +85,7 @@ docker compose -f docker-compose.yml -f infra/docker-compose.onprem.yml up -d --
 
 ```bash
 # Ejecutar migraciones contra la BBDD local
-docker exec -i $(docker ps -qf "ancestor=postgres:15") psql -U gastroflow -d gastroflow -f db/init.sql
+docker exec -i $(docker ps -qf "ancestor=postgres:15") psql -U restoflux -d restoflux -f db/init.sql
 ```
 
 4. Activación de licencia (opcional):

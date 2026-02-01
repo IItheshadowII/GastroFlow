@@ -53,7 +53,7 @@ export const KitchenPage: React.FC<{ tenantId: string; isCloud?: boolean }> = ({
   }, [tenantId, isCloud]);
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('gastroflow_token');
+    const token = localStorage.getItem('restoflux_token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;

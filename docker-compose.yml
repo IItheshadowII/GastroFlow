@@ -2,7 +2,7 @@ version: '3.8'
 services:
   app:
     build: .
-    image: gastroflow-app:local
+    image: restoflux-app:local
     ports:
       - "3000:3000"
     env_file:
@@ -15,9 +15,9 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: gastroflow
-      POSTGRES_PASSWORD: gastroflow
-      POSTGRES_DB: gastroflow
+      POSTGRES_USER: restoflux
+      POSTGRES_PASSWORD: restoflux
+      POSTGRES_DB: restoflux
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:

@@ -1,5 +1,5 @@
 -- ====================================
--- GastroFlow SaaS - Multi-tenant Users/Roles (Global Admin + Tenant Admin)
+-- RestoFlux SaaS - Multi-tenant Users/Roles (Global Admin + Tenant Admin)
 -- Fecha: 2026-01-20
 --
 -- Objetivo:

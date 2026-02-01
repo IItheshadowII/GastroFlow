@@ -30,7 +30,7 @@ export const CashierPage: React.FC<{ tenantId: string, user: User; isCloud?: boo
   const refreshData = async () => {
     try {
       if (isCloud) {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -136,7 +136,7 @@ export const CashierPage: React.FC<{ tenantId: string, user: User; isCloud?: boo
     setLoading(true);
     try {
       if (isCloud) {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
         fetch('/api/shifts', { method: 'POST', headers, body: JSON.stringify({ initial_cash: initialCash }) }).then(() => refreshData());
@@ -165,7 +165,7 @@ export const CashierPage: React.FC<{ tenantId: string, user: User; isCloud?: boo
     setLoading(true);
     try {
       if (isCloud) {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
         await fetch(`/api/shifts/${activeShift.id}`, { method: 'PUT', headers, body: JSON.stringify({ final_cash: finalCash, status: 'CLOSED' }) });

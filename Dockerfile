@@ -1,5 +1,5 @@
 # ====================================
-# GastroFlow SaaS - Dockerfile
+# RestoFlux SaaS - Dockerfile
 # Para despliegue en EasyPanel
 # BUILD: 2026-01-23 v2.1.1
 # ====================================

@@ -9,7 +9,7 @@ export type TenantRealtimeEvent = {
 let socket: Socket | null = null;
 
 export const startRealtime = (opts: { tenantId: string }) => {
-  const token = localStorage.getItem('gastroflow_token');
+  const token = localStorage.getItem('restoflux_token');
   if (!token) return;
   if (!opts?.tenantId) return;
 

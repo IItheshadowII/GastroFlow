@@ -1,6 +1,6 @@
 param(
-  [string]$OutputExe = "gastroflow-installer.exe",
-  [string]$ZipOut = "..\gastroflow-installer-windows.zip",
+  [string]$OutputExe = "restoflux-installer.exe",
+  [string]$ZipOut = "..\restoflux-installer-windows.zip",
   [string]$Readme = "..\README_INSTALLER.md"
 )
 

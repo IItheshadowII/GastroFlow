@@ -1,6 +1,6 @@
 # Instalador On‑Premise (Windows)
 
-Estos scripts permiten instalar GastroFlow en la máquina del cliente usando Docker Compose.
+Estos scripts permiten instalar RestoFlux en la máquina del cliente usando Docker Compose.
 
 Requisitos
 - Windows 10/11 con Docker Desktop instalado y funcionando (WSL2 recomendado).

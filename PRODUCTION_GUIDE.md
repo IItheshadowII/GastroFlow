@@ -1,5 +1,5 @@
 
-# GastroFlow - Guía de Migración a Producción
+# RestoFlux - Guía de Migración a Producción
 
 Esta guía detalla los pasos necesarios para transformar la aplicación actual (MVP Client-Side con lógica robusta) a una arquitectura de producción completa utilizando PostgreSQL y Node.js.
 
@@ -188,7 +188,7 @@ Configura tu hosting (Vercel/Netlify + Railway/AWS) con:
 VITE_API_URL=https://api.tudominio.com
 
 # Backend
-DATABASE_URL=postgresql://user:pass@host:5432/gastroflow
+DATABASE_URL=postgresql://restoflux:restoflux@host:5432/restoflux
 JWT_SECRET=super_secret_key_production
 MP_ACCESS_TOKEN=APP_USR-xxxxxx-xxxxxx (Mercado Pago Production Token)
 
@@ -204,8 +204,8 @@ Configurar en EasyPanel (NO commitear secretos):
 - `SMTP_PORT` (ej: `587`)
 - `SMTP_USER` (ej: tu cuenta Gmail)
 - `SMTP_PASS` (Gmail App Password)
-- `SMTP_FROM` (ej: `GastroFlow <tu-mail@gmail.com>`)
-- `PUBLIC_BASE_URL` (ej: `https://gastroflow.accesoit.com.ar`)
+- `SMTP_FROM` (ej: `RestoFlux <tu-mail@gmail.com>`)
+- `PUBLIC_BASE_URL` (ej: `https://restoflux.accesoit.com.ar`)
 
 Notas:
 - Para Gmail se recomienda usar *App Password* y tener 2FA habilitado.

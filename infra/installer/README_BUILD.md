@@ -6,22 +6,22 @@ Requisitos:
 
 Pasos (desde la máquina donde vayas a compilar):
 
-1. Abrir PowerShell en `e:\gastroflow-saas-pro\infra\installer`
+1. Abrir PowerShell en `e:\restoflux-saas-pro\infra\installer` (o la ruta donde tengas clonado el repo)
 
 2. Ejecutar el script de build:
 
 ```powershell
-# compila y genera gastroflow-installer.exe y crea infra\gastroflow-installer-windows.zip
+# compila y genera restoflux-installer.exe y crea infra\restoflux-installer-windows.zip
 powershell -ExecutionPolicy Bypass -File .\build_and_package.ps1
 ```
 
 3. El ZIP contiene:
-- `gastroflow-installer.exe` — ejecutable instalador
+- `restoflux-installer.exe` — ejecutable instalador
 - `README_INSTALLER.md` — instrucciones para el cliente
 
 Notas:
 - Alternativa cross‑compile desde Linux/macOS con Go instalado:
   ```bash
-  GOOS=windows GOARCH=amd64 go build -o gastroflow-installer.exe main.go
+  GOOS=windows GOARCH=amd64 go build -o restoflux-installer.exe main.go
   ```
 - El instalador requiere Docker Desktop en la máquina destino.

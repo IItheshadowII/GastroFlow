@@ -790,7 +790,7 @@ app.post('/api/admin/auth/forgot-password', async (req, res) => {
     const safeUrl = resetUrl || '';
     await sendEmail({
       to: admin.email,
-      subject: 'GastroFlow - Recuperación de contraseña (Admin)',
+      subject: 'RestoFlux - Recuperación de contraseña (Admin)',
       text: `Hola ${admin.name || ''}\n\nUsá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):\n${safeUrl}\n\nSi no lo solicitaste, ignorá este correo.`,
       html: `<p>Hola ${admin.name || ''}</p><p>Usá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>Si no lo solicitaste, ignorá este correo.</p>`,
     });
@@ -1117,7 +1117,7 @@ app.post('/api/app/auth/register', async (req, res) => {
     try {
       await sendEmail({
         to: email,
-        subject: 'Bienvenido a GastroFlow',
+        subject: 'Bienvenido a RestoFlux',
         text: `Hola ${name}!\n\nTu cuenta fue creada para la empresa: ${tenantName}.\n\nIngresá a tu panel para completar la suscripción.`,
         html: `<p>Hola ${name}!</p><p>Tu cuenta fue creada para la empresa: <b>${tenantName}</b>.</p><p>Ingresá a tu panel para completar la suscripción.</p>`,
       });
@@ -1182,7 +1182,7 @@ app.post('/api/app/auth/forgot-password', async (req, res) => {
       const safeUrl = resetUrl || '';
       await sendEmail({
         to: user.email,
-        subject: 'GastroFlow - Recuperación de contraseña',
+        subject: 'RestoFlux - Recuperación de contraseña',
         text: `Hola ${user.name || ''}\n\nUsá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):\n${safeUrl}\n\nSi no lo solicitaste, ignorá este correo.`,
         html: `<p>Hola ${user.name || ''}</p><p>Usá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>Si no lo solicitaste, ignorá este correo.</p>`,
       });
@@ -1227,7 +1227,7 @@ app.post('/api/app/auth/forgot-password', async (req, res) => {
     const safeUrl = resetUrl || '';
     await sendEmail({
       to: user.email,
-      subject: 'GastroFlow - Recuperación de contraseña',
+      subject: 'RestoFlux - Recuperación de contraseña',
       text: `Hola ${user.name || ''}\n\nUsá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):\n${safeUrl}\n\nSi no lo solicitaste, ignorá este correo.`,
       html: `<p>Hola ${user.name || ''}</p><p>Usá este link para cambiar tu contraseña (expira ${expiresAt.toISOString()}):</p><p><a href="${safeUrl}">${safeUrl}</a></p><p>Si no lo solicitaste, ignorá este correo.</p>`,
     });
@@ -2085,13 +2085,13 @@ app.post('/api/subscriptions', requireAuth, async (req, res) => {
     }
 
     const computedBackUrl = withQueryParams(
-      backUrl || 'https://gastroflow.accesoit.com.ar/billing',
+      backUrl || 'https://restoflux.accesoit.com.ar/billing',
       { tenantId, mp: 1 }
     );
 
     const response = await preapproval.create({
       body: {
-        reason: `Suscripción GastroFlow ${planId}`,
+        reason: `Suscripción RestoFlux ${planId}`,
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",

@@ -70,7 +70,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
   const refreshData = async () => {
     if (isCloud) {
       try {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -130,7 +130,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
 
     if (isCloud) {
       try {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -162,7 +162,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
   const handleDeleteUser = async (e: React.MouseEvent, targetUser: User) => {
     e.stopPropagation();
     
-    const currentUserStr = localStorage.getItem('gastroflow_current_user');
+    const currentUserStr = localStorage.getItem('restoflux_current_user');
     const currentUser = currentUserStr ? JSON.parse(currentUserStr) : null;
 
     if (currentUser && currentUser.id === targetUser.id) {
@@ -176,7 +176,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
 
     if (isCloud) {
       try {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -213,7 +213,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
 
     if (isCloud) {
       try {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -273,7 +273,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
 
     if (isCloud) {
       try {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -378,7 +378,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
 
     if (isCloud) {
       try {
-        const token = localStorage.getItem('gastroflow_token');
+        const token = localStorage.getItem('restoflux_token');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -562,7 +562,7 @@ export const UsersRolesPage: React.FC<{ tenantId: string; tenant?: Tenant | null
           <div className="flex justify-between items-center">
              <div className="bg-slate-800/30 p-4 rounded-3xl border border-slate-700/50 flex items-center gap-3">
                 <Shield className="text-purple-400" size={20} />
-                <p className="text-xs font-bold text-slate-400 italic">Cada rol define las capacidades de tus empleados dentro de GastroFlow.</p>
+                <p className="text-xs font-bold text-slate-400 italic">Cada rol define las capacidades de tus empleados dentro de RestoFlux.</p>
              </div>
              <button 
                 onClick={() => handleOpenRoleModal()}

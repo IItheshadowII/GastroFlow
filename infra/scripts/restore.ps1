@@ -15,7 +15,7 @@ if (-not $pgContainer) { Write-Host "No se encontró contenedor Postgres. Aborta
 
 Write-Host "Restaurando $BackupSql en la base de datos..." -ForegroundColor Cyan
 & docker cp "$BackupSql" "$pgContainer:/tmp/restore.sql"
-& docker exec -i $pgContainer psql -U gastroflow -d gastroflow -f /tmp/restore.sql
+& docker exec -i $pgContainer psql -U restoflux -d restoflux -f /tmp/restore.sql
 
 if ($UploadsZip) {
   $uploadsDir = Join-Path $repoRoot 'infra\data\uploads'

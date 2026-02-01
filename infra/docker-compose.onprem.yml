@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   app:
-    image: gastroflow-app:latest
+    image: restoflux-app:latest
     env_file:
       - .env.onprem
     ports:
@@ -16,9 +16,9 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: gastroflow
-      POSTGRES_PASSWORD: gastroflow
-      POSTGRES_DB: gastroflow
+      POSTGRES_USER: restoflux
+      POSTGRES_PASSWORD: restoflux
+      POSTGRES_DB: restoflux
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:

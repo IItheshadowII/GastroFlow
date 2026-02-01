@@ -64,7 +64,7 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
   const productDescRef = useRef<HTMLTextAreaElement>(null);
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('gastroflow_token');
+    const token = localStorage.getItem('restoflux_token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;
@@ -301,7 +301,7 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
 
     setImgGenLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_token');
+      const token = localStorage.getItem('restoflux_token');
       const res = await fetch('/api/app/ai/generate-product-image', {
         method: 'POST',
         headers: {
@@ -335,7 +335,7 @@ export const CatalogPage: React.FC<{ tenantId: string; user: User; isCloud?: boo
 
     setAiLoading(true);
     try {
-      const token = localStorage.getItem('gastroflow_token');
+      const token = localStorage.getItem('restoflux_token');
       const res = await fetch('/api/app/ai/analyze-product-image', {
         method: 'POST',
         headers: {

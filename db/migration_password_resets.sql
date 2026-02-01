@@ -1,5 +1,5 @@
 -- ====================================
--- GastroFlow SaaS - Password Resets (tenant + global)
+-- RestoFlux SaaS - Password Resets (tenant + global)
 -- Fecha: 2026-01-21
 --
 -- Objetivo:

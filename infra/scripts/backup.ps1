@@ -18,7 +18,7 @@ $timestamp = Get-Date -Format yyyyMMddHHmmss
 $dumpFile = Join-Path $out "pg_backup_$timestamp.sql"
 
 Write-Host "Dumping Postgres a $dumpFile" -ForegroundColor Cyan
-& docker exec -t $pgContainer pg_dump -U gastroflow gastroflow > $dumpFile
+& docker exec -t $pgContainer pg_dump -U restoflux restoflux > $dumpFile
 
 # Comprimir uploads
 $uploadsDir = Join-Path $repoRoot 'infra\data\uploads'

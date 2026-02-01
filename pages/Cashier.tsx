@@ -351,19 +351,20 @@ export const CashierPage: React.FC<{ tenantId: string, user: User; isCloud?: boo
         )}
       </div>
 
-      {/* History Section (Sin cambios) */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-           <div className="flex items-center gap-4">
-            <div className="p-3 bg-slate-900 rounded-2xl border border-slate-800 text-slate-400">
-              <ListChecks size={24} />
+      {/* History Section */}
+      {closedShifts.length > 0 && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-slate-900 rounded-2xl border border-slate-800 text-slate-400">
+                <ListChecks size={24} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-100 italic tracking-tight">Historial de Operaciones</h3>
             </div>
-            <h3 className="text-2xl font-black text-slate-100 italic tracking-tight">Historial de Operaciones</h3>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 gap-5">
-          {closedShifts.map(shift => {
+          <div className="grid grid-cols-1 gap-5">
+            {closedShifts.map(shift => {
             const shiftTheoreticalCash = shift.initialCash + shift.cashSales;
             const shiftDiff = (shift.finalCash || 0) - shiftTheoreticalCash;
 
@@ -418,8 +419,9 @@ export const CashierPage: React.FC<{ tenantId: string, user: User; isCloud?: boo
               </div>
             );
           })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -1,16 +1,63 @@
-# RestroFlux - Deploy en Portainer
+# RestroFlux - Deploy en Portainer y GHCR
 
-## Opción 1: Portainer Repository (recomendada si Portainer puede buildar)
+## Qué cambió
+
+- La app ya no depende de una imagen local `restroflux-app:latest`.
+- El stack usa por defecto `ghcr.io/iitheshadowii/restroflux-app:latest`.
+- El build y publish de la app se hace con GitHub Actions a GHCR.
+- MinIO usa `minio/minio:latest`, que es un tag válido y existente.
+
+## Workflow de GitHub Actions
+
+El workflow está en [.github/workflows/publish-ghcr.yml](.github/workflows/publish-ghcr.yml) y publica:
+
+- `latest` cuando hay push a `main`
+- `sha-<commit>` en cada build
+- el nombre del tag git cuando publicas un release/tag
+
+## Cómo habilitar GHCR
+
+1. En GitHub, entra al repositorio y habilita GitHub Actions si todavía no está habilitado.
+2. En Settings > Actions > General, deja permitido el uso del `GITHUB_TOKEN` con permisos de lectura y escritura.
+3. En Settings > Packages, verifica que el paquete `restroflux-app` exista después del primer workflow.
+4. Si quieres desplegar desde Portainer sin credenciales de registry, marca el paquete GHCR como público.
+5. Si prefieres mantenerlo privado, crea un access token o usa credenciales de GitHub en Portainer Registry.
+
+## Permisos que necesita el workflow
+
+- `contents: read`
+- `packages: write`
+
+Esos permisos ya quedan declarados en el workflow.
+
+## Variables opcionales de build
+
+Si quieres personalizar el frontend compilado en la imagen desde GitHub Actions, crea Repository Variables en GitHub:
+
+- `VITE_APP_MODE`
+- `VITE_API_URL`
+- `VITE_CLOUD_URL`
+- `VITE_LICENSE_KEY`
+- `VITE_INSTANCE_ID`
+- `VITE_LICENSE_CHECK_INTERVAL_DAYS`
+- `VITE_LICENSE_GRACE_DAYS`
+
+Si no las defines, el workflow usa defaults seguros.
+
+## Desplegar desde Portainer Repository
 
 Usa [docker-compose.yml](docker-compose.yml).
 
-1. En Portainer crea un stack desde Git repository.
-2. Selecciona el repositorio y el archivo `docker-compose.yml`.
-3. En la sección de variables carga, como mínimo:
+1. Espera a que el workflow publique la imagen en GHCR.
+2. En Portainer crea un stack desde Git repository.
+3. Selecciona este repositorio y el archivo `docker-compose.yml`.
+4. Carga en variables del stack, como mínimo:
    - `JWT_SECRET`
-   - `DB_PASSWORD`
+   - `DB_PASSWORD` o `DATABASE_URL`
    - `PUBLIC_BASE_URL`
-4. Si usarás integraciones, agrega también:
+5. Opcionalmente define:
+   - `RESTROFLUX_IMAGE` si quieres fijar una imagen por `sha-...` o por tag
+   - `MINIO_IMAGE`
    - `GEMINI_API_KEY`
    - `MP_ACCESS_TOKEN`
    - `MP_WEBHOOK_SECRET`
@@ -19,52 +66,20 @@ Usa [docker-compose.yml](docker-compose.yml).
    - `SMTP_USER`
    - `SMTP_PASS`
    - `SMTP_FROM`
-5. Despliega el stack.
+6. Despliega el stack.
 
-Notas:
-- No uses `env_file` en Portainer Repository.
-- El compose ya usa defaults seguros y variables inyectadas por Portainer.
-- El hostname interno de PostgreSQL es `restroflux-postgres`.
-- PostgreSQL y MinIO quedan internos al stack por defecto; solo la app publica puerto al host.
-
-## Opción 2: Portainer Stack en Swarm
+## Desplegar en Portainer Swarm
 
 Usa [stack.yml](stack.yml).
 
-1. Publica antes una imagen del proyecto en un registry.
-2. Define `RESTROFLUX_IMAGE` en Portainer con esa imagen.
-3. Carga las mismas variables de entorno que en la opción Repository.
-4. Despliega el stack.
+1. Publica primero la imagen con GitHub Actions.
+2. En Portainer Stack/Web editor o Repository usa `stack.yml`.
+3. Si quieres inmovilizar versión, define `RESTROFLUX_IMAGE=ghcr.io/iitheshadowii/restroflux-app:sha-<commit>`.
+4. Carga las mismas variables de entorno del despliegue normal.
 
-Notas:
-- Swarm no es la vía correcta para buildar desde el repo; por eso `stack.yml` usa `image` y no `build`.
-- Si defines `DATABASE_URL`, debe usar como host `restroflux-postgres` o un host externo resolvible desde la red del stack.
+## Notas operativas
 
-## Variables mínimas de producción
-
-- `JWT_SECRET`
-- `DB_PASSWORD` o `DATABASE_URL`
-- `PUBLIC_BASE_URL`
-
-## Variables opcionales
-
-- `GEMINI_API_KEY`
-- `GLOBAL_ADMIN_BOOTSTRAP_TOKEN`
-- `MP_ACCESS_TOKEN`
-- `MP_WEBHOOK_SECRET`
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USER`
-- `SMTP_PASS`
-- `SMTP_FROM`
-- `MINIO_ROOT_USER`
-- `MINIO_ROOT_PASSWORD`
-
-## Verificación rápida
-
-1. Confirmar que el contenedor/app responda en `http://TU_HOST:3000`.
-2. Revisar logs de `restroflux-app`.
-3. Confirmar que la app ya no busque `.env` en el host de Portainer.
-4. Confirmar que PostgreSQL resuelva por `restroflux-postgres`.
-5. Si usas PostgreSQL interno del stack, dejar `DATABASE_SSL=false`.
-6. No publicar `5432`, `9000` ni `9001` en Portainer salvo necesidad operativa concreta.
+- El hostname interno de PostgreSQL es `restroflux-postgres`.
+- PostgreSQL y MinIO quedan internos al stack por defecto.
+- Si usas PostgreSQL interno del stack, deja `DATABASE_SSL=false`.
+- No publiques `5432`, `9000` ni `9001` salvo necesidad operativa concreta.

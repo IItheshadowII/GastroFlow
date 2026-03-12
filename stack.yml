@@ -2,7 +2,7 @@ services:
   # Swarm/Portainer Stack debe consumir una imagen ya publicada.
   # Los secretos y variables se cargan desde la UI de Portainer.
   restroflux-app:
-    image: ${RESTROFLUX_IMAGE:-ghcr.io/your-org/restroflux:latest}
+    image: ${RESTROFLUX_IMAGE:-ghcr.io/iitheshadowii/restroflux-app:latest}
     ports:
       - target: 3000
         published: ${APP_PORT:-3000}
@@ -51,7 +51,7 @@ services:
         condition: on-failure
 
   restroflux-minio:
-    image: minio/minio:RELEASE.2023-09-15T00-00-00Z
+    image: ${MINIO_IMAGE:-minio/minio:latest}
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}

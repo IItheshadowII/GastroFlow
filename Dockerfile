@@ -1,7 +1,6 @@
 # ====================================
-# RestoFlux SaaS - Dockerfile
-# Para despliegue en EasyPanel
-# BUILD: 2026-01-23 v2.1.1
+# RestroFlux SaaS - Dockerfile
+# Imagen de producción para GHCR / Portainer / Swarm
 # ====================================
 
 # Etapa 1: Build del Frontend
@@ -58,7 +57,7 @@ COPY server.js ./
 # Copiar el build del frontend desde la etapa anterior
 COPY --from=builder /app/dist ./dist
 
-# Puerto expuesto (EasyPanel lo detecta)
+# Puerto expuesto
 EXPOSE 3000
 
 # Variables de entorno por defecto

@@ -1,5 +1,3 @@
-name: restroflux
-
 services:
   # Portainer Repository no monta automáticamente un .env del repo.
   # Por eso este compose usa variables inyectadas por Portainer y defaults seguros.

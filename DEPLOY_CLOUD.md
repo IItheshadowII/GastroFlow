@@ -33,6 +33,8 @@ La app se publica en GHCR con este formato:
 - `JWT_SECRET`
 - `POSTGRES_PASSWORD`, o bien `DATABASE_URL`
 
+En Swarm/Portainer también conviene definir `STACK_NAME` si tu stack no se llama `restroflux`.
+
 Por defecto la app usa `POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD` para conectarse al contenedor PostgreSQL del stack. Solo define `DB_*` si necesitas forzar credenciales distintas.
 
 Variables opcionales:
@@ -75,7 +77,13 @@ Si lo mantienes privado, configura el registry en Portainer con credenciales de 
 RESTROFLUX_IMAGE=ghcr.io/<owner>/restroflux-app:sha-<commit>
 ```
 
-3. Ejecuta el deploy desde Portainer o con `docker stack deploy`.
+3. Si el nombre del stack en Portainer no es `restroflux`, define también:
+
+```env
+STACK_NAME=tu-stack-real
+```
+
+4. Ejecuta el deploy desde Portainer o con `docker stack deploy`.
 
 ## Reverse proxy
 
@@ -83,7 +91,7 @@ RESTROFLUX_IMAGE=ghcr.io/<owner>/restroflux-app:sha-<commit>
 - Deja PostgreSQL y MinIO internos a la red del stack.
 - Configura `PUBLIC_BASE_URL` con tu dominio público real.
 - Si usas suscripciones o reseteo de contraseña, `PUBLIC_BASE_URL` debe estar bien definido.
-- La resolución interna entre servicios usa aliases fijos: `restroflux-postgres` y `restroflux-minio`.
+- En Swarm, la app puede derivar el host de PostgreSQL como `<STACK_NAME>_restroflux-postgres` cuando el alias corto no resuelve.
 
 ## Actualización cloud
 

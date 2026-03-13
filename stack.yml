@@ -12,8 +12,9 @@ services:
       APP_MODE: ${APP_MODE:-CLOUD}
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
+      STACK_NAME: ${STACK_NAME:-restroflux}
       DATABASE_URL: ${DATABASE_URL:-}
-      DB_HOST: ${DB_HOST:-restroflux-postgres}
+      DB_HOST: ${DB_HOST:-}
       DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${POSTGRES_DB:-restroflux}
       DB_USER: ${POSTGRES_USER:-restroflux}

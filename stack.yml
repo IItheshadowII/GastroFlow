@@ -5,7 +5,7 @@ services:
     image: ${RESTROFLUX_IMAGE:-ghcr.io/iitheshadowii/restroflux-app:latest}
     ports:
       - target: 3000
-        published: ${APP_PORT:-3000}
+        published: ${APP_HTTP_PORT:-3000}
         protocol: tcp
         mode: ingress
     environment:
@@ -40,6 +40,8 @@ services:
     depends_on:
       - restroflux-postgres
       - restroflux-minio
+    networks:
+      - restroflux-net
     deploy:
       restart_policy:
         condition: on-failure
@@ -52,6 +54,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-restroflux}
     volumes:
       - restroflux-pgdata:/var/lib/postgresql/data
+    networks:
+      restroflux-net:
+        aliases:
+          - restroflux-postgres
     deploy:
       restart_policy:
         condition: on-failure
@@ -64,9 +70,18 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
     volumes:
       - restroflux-miniodata:/data
+    networks:
+      restroflux-net:
+        aliases:
+          - restroflux-minio
     deploy:
       restart_policy:
         condition: on-failure
+
+networks:
+  restroflux-net:
+    driver: overlay
+    attachable: true
 
 volumes:
   restroflux-pgdata:

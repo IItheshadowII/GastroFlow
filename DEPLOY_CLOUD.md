@@ -81,6 +81,7 @@ RESTROFLUX_IMAGE=ghcr.io/<owner>/restroflux-app:sha-<commit>
 - Deja PostgreSQL y MinIO internos a la red del stack.
 - Configura `PUBLIC_BASE_URL` con tu dominio público real.
 - Si usas suscripciones o reseteo de contraseña, `PUBLIC_BASE_URL` debe estar bien definido.
+- La resolución interna entre servicios usa aliases fijos: `restroflux-postgres` y `restroflux-minio`.
 
 ## Actualización cloud
 

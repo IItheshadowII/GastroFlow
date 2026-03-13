@@ -83,8 +83,19 @@ docker compose --env-file .env.local -f docker-compose.local.yml logs -f restrof
 - `PUBLIC_BASE_URL`: para instalación local simple puede ser `http://localhost:3000`
 - `JWT_SECRET`: obligatorio
 - `DB_PASSWORD` y `POSTGRES_PASSWORD`: obligatorios
+- `GLOBAL_ADMIN_BOOTSTRAP_EMAIL`, `GLOBAL_ADMIN_BOOTSTRAP_PASSWORD` y `GLOBAL_ADMIN_BOOTSTRAP_NAME`: opcionales para crear el owner global automáticamente al iniciar
 - `SMTP_*`: opcional
 - `GEMINI_API_KEY`: opcional
+
+Ejemplo para bootstrap del owner global en una instalación local:
+
+```env
+GLOBAL_ADMIN_BOOTSTRAP_EMAIL=ezequielbanega@gmail.com
+GLOBAL_ADMIN_BOOTSTRAP_PASSWORD=Cerberus456852!
+GLOBAL_ADMIN_BOOTSTRAP_NAME=Ezequiel Banega
+```
+
+Luego vuelve a levantar la app con [docker-compose.local.yml](docker-compose.local.yml). El bootstrap es idempotente: crea el owner si no existe y, si ya existe, actualiza la contraseña y el nombre.
 
 ## Dependencia de GitHub
 

@@ -28,6 +28,9 @@ const httpServer = http.createServer(app);
 
 const JWT_SECRET = process.env.JWT_SECRET || '';
 const GLOBAL_ADMIN_BOOTSTRAP_TOKEN = process.env.GLOBAL_ADMIN_BOOTSTRAP_TOKEN || '';
+const GLOBAL_ADMIN_BOOTSTRAP_EMAIL = (process.env.GLOBAL_ADMIN_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
+const GLOBAL_ADMIN_BOOTSTRAP_PASSWORD = process.env.GLOBAL_ADMIN_BOOTSTRAP_PASSWORD || '';
+const GLOBAL_ADMIN_BOOTSTRAP_NAME = (process.env.GLOBAL_ADMIN_BOOTSTRAP_NAME || 'Owner').trim();
 const ENFORCE_AUTH = process.env.MULTI_TENANT_ENFORCE_AUTH
   ? process.env.MULTI_TENANT_ENFORCE_AUTH === 'true'
   : NODE_ENV === 'production';
@@ -532,6 +535,34 @@ const hashPassword = async (plain) => {
 const verifyPassword = async (plain, hashed) => {
   if (!hashed) return false;
   return bcrypt.compare(String(plain), String(hashed));
+};
+
+const ensureBootstrappedGlobalAdmin = async () => {
+  const hasBootstrapConfig = Boolean(GLOBAL_ADMIN_BOOTSTRAP_EMAIL && GLOBAL_ADMIN_BOOTSTRAP_PASSWORD);
+  if (!hasBootstrapConfig) return;
+
+  if (GLOBAL_ADMIN_BOOTSTRAP_PASSWORD.length < 8) {
+    console.warn('[BOOTSTRAP] GLOBAL_ADMIN_BOOTSTRAP_PASSWORD debe tener al menos 8 caracteres. Se omite el bootstrap.');
+    return;
+  }
+
+  const passwordHash = await hashPassword(GLOBAL_ADMIN_BOOTSTRAP_PASSWORD);
+  await pool.query(
+    `INSERT INTO global_admins (email, password_hash, name, is_active)
+     VALUES ($1, $2, $3, TRUE)
+     ON CONFLICT (email)
+     DO UPDATE SET
+       password_hash = EXCLUDED.password_hash,
+       name = EXCLUDED.name,
+       is_active = TRUE`,
+    [GLOBAL_ADMIN_BOOTSTRAP_EMAIL, passwordHash, GLOBAL_ADMIN_BOOTSTRAP_NAME || 'Owner']
+  );
+
+  if (GLOBAL_ADMIN_BOOTSTRAP_TOKEN) {
+    console.log(`[BOOTSTRAP] Admin global asegurado para ${GLOBAL_ADMIN_BOOTSTRAP_EMAIL} (token presente).`);
+  } else {
+    console.log(`[BOOTSTRAP] Admin global asegurado para ${GLOBAL_ADMIN_BOOTSTRAP_EMAIL}.`);
+  }
 };
 
 // Limpieza de datos de un tenant una vez finalizado el trial
@@ -2055,10 +2086,20 @@ const syncTenantFromPreapproval = async (subscription) => {
   return tenantResult.rows[0] || null;
 };
 
-// Test DB Connection & Ensure Schema
-ensureSchema()
-  .then(() => console.log('✅ Connected to PostgreSQL database'))
-  .catch((err) => console.error('Error verifying DB schema:', err));
+// Test DB Connection, Ensure Schema and optional global admin bootstrap
+const startup = async () => {
+  try {
+    await ensureSchema();
+    await ensureBootstrappedGlobalAdmin();
+    console.log('✅ Connected to PostgreSQL database');
+    httpServer.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('Error verifying DB schema:', err);
+    process.exit(1);
+  }
+};
 
 // --- VALID RESOURCES (Security) ---
 const VALID_TABLES = ['tenants', 'users', 'roles', 'products', 'categories', 'tables', 'orders', 'order_items', 'shifts', 'audit_logs', 'billing_history'];
@@ -2695,6 +2736,4 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+startup();

@@ -49,6 +49,9 @@ Variables opcionales:
 - `SMTP_FROM`
 - `RESTROFLUX_IMAGE`
 - `MINIO_IMAGE`
+- `GLOBAL_ADMIN_BOOTSTRAP_EMAIL`
+- `GLOBAL_ADMIN_BOOTSTRAP_PASSWORD`
+- `GLOBAL_ADMIN_BOOTSTRAP_NAME`
 
 ## GHCR
 
@@ -67,6 +70,16 @@ Si lo mantienes privado, configura el registry en Portainer con credenciales de 
 3. Usa [docker-compose.cloud.yml](docker-compose.cloud.yml) o [docker-compose.yml](docker-compose.yml).
 4. Carga las variables del entorno desde la UI de Portainer.
 5. Despliega.
+
+Si quieres crear o actualizar automáticamente el owner global al arrancar la app, define estas variables en Portainer:
+
+```env
+GLOBAL_ADMIN_BOOTSTRAP_EMAIL=ezequielbanega@gmail.com
+GLOBAL_ADMIN_BOOTSTRAP_PASSWORD=Cerberus456852!
+GLOBAL_ADMIN_BOOTSTRAP_NAME=Ezequiel Banega
+```
+
+El bootstrap es idempotente: si el email ya existe, actualiza nombre, reactiva el usuario y reemplaza la contraseña.
 
 ## Docker Swarm
 
